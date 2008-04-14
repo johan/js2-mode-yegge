@@ -296,7 +296,7 @@ into temp buffers."
     (aset table js2-FALSE 'font-lock-constant-face)
     table)
   "Vector whose values are t for tokens that are keywords")
-          
+
 (defconst js2-reserved-words
   '(abstract
     boolean byte
@@ -584,7 +584,7 @@ corresponding number.  Otherwise return -1."
                   (setq js2-token-end js2-ts-cursor)
                   (js2-report-error "msg.unterminated.string.lit")
                   (throw 'return js2-STRING))
-                  
+
                 (when (eq c ?\\)
                   ;; We've hit an escaped character
                   (setq c (js2-get-char))
@@ -836,32 +836,55 @@ corresponding number.  Otherwise return -1."
 
           (otherwise
            (js2-report-scan-error "msg.illegal.character")))))))
-           
+
 (defun js2-read-regexp (start-token)
   "Called by parser when it gets / or /= in literal context."
   (let (c
         err
+        in-class
         (continue t))
     (setq js2-token-beg js2-ts-cursor
           js2-ts-string-buffer nil
           js2-ts-regexp-flags nil)
+
     (if (eq start-token js2-ASSIGN_DIV)
         ;; mis-scanned /=
         (js2-add-to-string ?=)
       (if (neq start-token js2-DIV)
           (error "failed assertion")))
-    (while (and (not err) (/= (setq c (js2-get-char)) ?/))
-      (if (or (eq c ?\n) (eq c js2-EOF_CHAR))
-          (progn
-            (setq js2-token-end (1- js2-ts-cursor)
-                  err t
-                  js2-ts-string (js2-collect-string js2-ts-string-buffer))
-            (js2-report-error "msg.unterminated.re.lit"))
-        (when (eq c ?\\)
-          (js2-add-to-string c)
-          (setq c (js2-get-char)))
-        (js2-add-to-string c)))
+
+    (while (and continue
+                (not err))
+      (setq c (js2-get-char))
+      (cond
+       ((or (eq c ?\n)
+            (eq c js2-EOF_CHAR))
+        (setq js2-token-end (1- js2-ts-cursor)
+              err t
+              js2-ts-string (js2-collect-string js2-ts-string-buffer))
+        (js2-report-error "msg.unterminated.re.lit"))
+
+       ((= c ?\[)
+        (setq in-class t)
+        (js2-add-to-string c))
+
+       ((= c ?\])
+        (setq in-class nil)
+        (js2-add-to-string c))
+
+       ((= c ?\\)
+        (js2-add-to-string c)
+        (setq c (js2-get-char)))
+
+       ((= c ?/)
+        (if in-class
+            (js2-add-to-string c)
+          (setq continue nil)))
+       (t
+        (js2-add-to-string c))))
+
     (unless err
+      (setq continue t)
       (while continue
         (cond
          ((js2-match-char ?g)
