@@ -184,6 +184,28 @@ Returns nil and consumes nothing if MATCH is not the next token."
     (js2-consume-token)
     t))
 
+(defsubst js2-valid-prop-name-token (tt)
+  (or (= tt js2-NAME)
+      (and js2-allow-keywords-as-property-names
+           (plusp tt)
+           (aref js2-kwd-tokens tt))))
+
+(defsubst js2-match-prop-name ()
+  "Consume token and return t if next token is a valid property name.
+It's valid if it's a js2-NAME, or `js2-allow-keywords-as-property-names'
+is non-nil and it's a keyword token."
+  (if (js2-valid-prop-name-token (js2-peek-token))
+      (progn
+        (js2-consume-token)
+        t)
+    nil))
+
+(defsubst js2-must-match-prop-name (msg-id &optional pos len)
+  (if (js2-match-prop-name)
+      t
+    (js2-report-error msg-id pos len)
+    nil))
+
 (defsubst js2-peek-token-or-eol ()
   "Return js2-EOL if the current token immediately follows a newline.
 Else returns the current token.  Used in situations where we don't
@@ -2090,21 +2112,24 @@ Returns an expression tree that includes PN, the parent node."
   "Parse a property access, XML descendants access, or XML attr access."
   (let ((member-type-flags 0)
         (dot-pos js2-token-beg)
-        (dot-len (if (= tt js2-DOTDOT) 2 1)))
+        (dot-len (if (= tt js2-DOTDOT) 2 1))
+        result)
     (js2-consume-token)
     (when (= tt js2-DOTDOT)
       (js2-must-have-xml)
       (setq member-type-flags js2-descendants-flag))
     (if (not js2-compiler-xml-available)
-        (prog2
-            (js2-must-match js2-NAME "msg.no.name.after.dot")
-            (make-js2-prop-get-node :target pn
-                                    :pos js2-token-beg
-                                    :prop (make-js2-name-node)
-                                    :len (- js2-token-end js2-token-beg))
+        (progn
+          (js2-must-match-prop-name "msg.no.name.after.dot")
+          (setq result
+                (make-js2-prop-get-node :target pn
+                                        :pos js2-token-beg
+                                        :prop (make-js2-name-node)
+                                        :len (- js2-token-end js2-token-beg)))
           (js2-node-add-children pn
                                  (js2-prop-get-node-target pn)
-                                 (js2-prop-get-node-prop pn)))
+                                 (js2-prop-get-node-prop pn))
+          result)
       (setq tt (js2-next-token))
       (cond
        ;; needed for generator.throw();
@@ -2114,7 +2139,7 @@ Returns an expression tree that includes PN, the parent node."
                                  member-type-flags))
 
        ;; handles: name, ns::name, ns::*, ns::[expr]
-       ((= tt js2-NAME)
+       ((js2-valid-prop-name-token tt)
         (js2-parse-property-name pn
                                  (make-js2-name-node)  ; name|ns
                                  member-type-flags))
@@ -2140,7 +2165,7 @@ PN (parent node) is the XML target to the left of the @ operator."
         expr pos beg len)
     (setq member-type-flags (set-flag member-type-flags js2-attribute-flag))
     (cond
-     ((= tt js2-NAME)
+     ((js2-valid-prop-name-token tt)
       ;; handles: @name, @ns::name, @ns::*, @ns::[expr]
       (setq pn (js2-parse-property-name pn
                                         (make-js2-name-node)
@@ -2232,11 +2257,11 @@ e4x/xml cases, it may not be a valid identifier (e.g. `*')."
         (setq namespace (make-js2-string-node :value name)
               tt (js2-next-token))
         (cond
-         ((= tt js2-NAME)               ; handles name::name
+         ((js2-valid-prop-name-token tt) ; handles name::name
           (setq name (make-js2-string-node)))
-         ((= tt js2-MUL)                ; handles name::*
+         ((= tt js2-MUL)                 ; handles name::*
           (setq name (make-js2-string-node :value "*")))
-         ((= tt js2-LB)                 ; handles name::[expr]
+         ((= tt js2-LB)                  ; handles name::[expr]
           (setq lb (- js2-token-beg pos)
                 pn (js2-create-element-get pn
                                            namespace
@@ -2527,7 +2552,7 @@ Last token peeked should be the initial FOR."
     (while continue
       (setq tt (js2-peek-token))
       (cond
-       ((or (= tt js2-NAME)
+       ((or (js2-valid-prop-name-token tt)
             (= tt js2-STRING))
         (js2-consume-token)
         (setq after-comma nil

@@ -219,6 +219,7 @@ You can disable this by customizing `js2-cleanup-whitespace'."
 (defun js2-mode-edit (beg end len)
   "Schedule a new parse after buffer is edited."
   (setq js2-mode-buffer-dirty-p t)
+  (js2-mode-hide-overlay)
   (js2-mode-reset-timer))
 
 (defun js2-reparse ()

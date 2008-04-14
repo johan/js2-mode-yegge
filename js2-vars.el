@@ -234,6 +234,17 @@ comprehensions."
   :type 'integer
   :group 'js2-mode)
 
+(defcustom js2-allow-keywords-as-property-names nil
+  "If non-nil, you can use JavaScript keywords as object property names.
+Examples:
+
+  var foo = {int: 5, while: 6, continue: 7};
+  foo.return = 8;
+
+Ecma-262 forbids this syntax, but many browsers support it."
+  :type 'boolean
+  :group 'js2-mode)
+
 (defcustom js2-instanceof-has-side-effects nil
   "If non-nil, treats the instanceof operator as having side effects.
 This is useful for xulrunner apps."
