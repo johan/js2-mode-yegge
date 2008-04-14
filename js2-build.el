@@ -21,9 +21,14 @@
 ;;; Code:
 
 (defvar js2-mode-directory
-  (expand-file-name "./" (file-name-directory load-file-name))
+  (expand-file-name "./"
+                    (if load-file-name
+                        (file-name-directory load-file-name)
+                      command-line-default-directory))
   "Directory where js2-mode is installed. ")
+
 (add-to-list 'load-path js2-mode-directory)
+
 (require 'js2-util)
 
 (defconst js2-build-js2-mode-files
@@ -39,7 +44,9 @@
   "Files used to produce the `js2-mode' final build.
 The order of the files in the list is significant.")
 
-(defconst js2-build-directory js2-mode-directory)
+(defconst js2-build-directory
+  (concat js2-mode-directory "build/")
+  "Where `js2-build-js2-mode' build artifacts are deposited.")
   
 (defun js2-build-js2-mode ()
   "Concatenates and byte-compiles the js2-mode files.
