@@ -69,6 +69,7 @@ Rewrites some of the code on the fly."
     (setq output (find-file-noselect outfile))
     (save-excursion
       (set-buffer output)
+      (setq buffer-undo-list t)
       (erase-buffer)
       (dolist (file (reverse js2-build-js2-mode-files))
         (setq bufname (concat file ".el")
