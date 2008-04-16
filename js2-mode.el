@@ -133,6 +133,7 @@
   (set (make-local-variable 'parse-sexp-ignore-comments) t)
   ;; needed for M-x rgrep, among other things
   (put 'js2-mode 'find-tag-default-function #'js2-mode-find-tag)
+
   ;; some variables needed by cc-engine for paragraph-fill, etc.
   (setq c-buffer-is-cc-mode t
         c-comment-prefix-regexp js2-comment-prefix-regexp
@@ -144,20 +145,23 @@
         c-syntactic-eol js2-syntactic-eol)
   (if (>= emacs-major-version 22)
       (c-setup-paragraph-variables))
+
   ;; We do our own syntax highlighting based on the parse tree.
-  (if (fboundp #'font-lock-mode)
-      (font-lock-mode -1))
-  ;; Don't let forced fontification ruin our lovely highlighting.
-  (dolist (var '(font-lock-fontify-buffer-function
-                 font-lock-unfontify-buffer-function
-                 font-lock-fontify-region-function
+  ;; However, we want minor modes that add keywords to highlight properly
+  ;; (examples:  doxymacs, column-marker).  We do this by not letting
+  ;; font-lock unfontify anything, and telling it to fontify after we
+  ;; re-parse and re-highlight the buffer.  (We currently don't do any
+  ;; work with regions other than the whole buffer.)
+  (dolist (var '(font-lock-unfontify-buffer-function
                  font-lock-unfontify-region-function))
     (set (make-local-variable var) (lambda (&rest args) t)))
+
   ;; Experiment:  make reparse-delay longer for longer files.
   (if (plusp js2-dynamic-idle-timer-adjust)
       (setq js2-idle-timer-delay
             (* js2-idle-timer-delay
                (/ (point-max) js2-dynamic-idle-timer-adjust))))
+
   (add-hook 'change-major-mode-hook #'js2-mode-exit nil t)
   (add-hook 'after-change-functions #'js2-mode-edit nil t)
   ;; this needs work.  see python-mode's version.
@@ -247,6 +251,9 @@ we discard the parse and reschedule it."
                              (js2-mode-fontify-regions)
                              (js2-mode-show-warnings)
                              (js2-mode-show-errors)
+                             (if (and font-lock-keywords
+                                      font-lock-mode)
+                                 (font-lock-fontify-buffer))
                              nil))))
               (if interrupted-p
                   (progn
