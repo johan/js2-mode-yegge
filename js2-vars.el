@@ -952,6 +952,8 @@ another file, or you've got a potential bug."
     (define-key map "\C-c\C-a" #'js2-mode-show-all)
     (define-key map "\C-c\C-f" #'js2-mode-toggle-hide-functions)
     (define-key map "\C-c\C-t" #'js2-mode-toggle-hide-comments)
+    (define-key map "\C-c\C-o" #'js2-mode-toggle-element)
+    (define-key map "\C-c\C-w" #'js2-mode-toggle-warnings-and-errors)
     (define-key map (kbd "C-c C-'") #'js2-next-error)
     ;; also define user's preference for next-error, if available
     (if (setq keys (where-is-internal #'next-error))
@@ -975,12 +977,12 @@ another file, or you've got a potential bug."
       '(menu-item "Customize js2-mode" js2-mode-customize
                   :help "Customize the behavior of this mode"))
 
-    (define-key map [menu-bar javascript separator-1]
-      '("--"))
-
     (define-key map [menu-bar javascript js2-force-refresh]
       '(menu-item "Force buffer refresh" js2-mode-reset
                   :help "Re-parse the buffer from scratch"))
+
+    (define-key map [menu-bar javascript separator-2]
+      '("--"))
 
     (define-key map [menu-bar javascript next-error]
       '(menu-item "Next warning or error" js2-next-error
@@ -988,6 +990,19 @@ another file, or you've got a potential bug."
                                 (or (js2-ast-root-errors js2-mode-ast)
                                     (js2-ast-root-warnings js2-mode-ast)))
                   :help "Move to next warning or error"))
+
+    (define-key map [menu-bar javascript display-errors]
+      '(menu-item "Show errors and warnings" js2-mode-display-warnings-and-errors
+                  :visible (not js2-mode-show-parse-errors)
+                  :help "Turn on display of warnings and errors"))
+
+    (define-key map [menu-bar javascript hide-errors]
+      '(menu-item "Hide errors and warnings" js2-mode-hide-warnings-and-errors
+                  :visible js2-mode-show-parse-errors
+                  :help "Turn off display of warnings and errors"))
+
+    (define-key map [menu-bar javascript separator-1]
+      '("--"))
 
     (define-key map [menu-bar javascript js2-toggle-function]
       '(menu-item "Show/collapse element" js2-mode-toggle-element
@@ -1017,6 +1032,10 @@ another file, or you've got a potential bug."
   "Keymap used in `js2-mode' buffers.")
 
 (defconst js2-mode-identifier-re "[a-zA-Z_$][a-zA-Z0-9_$]*")
+
+(defvar js2-mode-//-comment-re "^\\(\\s-*\\)//.+"
+  "Matches a //-comment line.  Must be first non-whitespace on line.
+First match-group is the leading whitespace.")
 
 (defvar js2-mode-ast nil "Private variable.")
 (make-variable-buffer-local 'js2-mode-ast)

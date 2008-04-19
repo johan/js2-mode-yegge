@@ -1,0 +1,213 @@
+Since 2008330:
+
+  - fixed broken installation instructions
+
+  - added `js2-language-version' custom variable that defaults
+    to 150, for JavaScript 1.5.  If you set it to 160, you get
+    E4X support, and 170 adds let, yield, and array comprehensions.
+
+  - added new warning for missing semicolon (auto-insertion)
+    - configured via js2-strict-missing-semi-warning
+
+  - fixed default indentation for first line of an object
+    literal being passed as the first parameter to a function:
+    most people want this indented from previous line, not
+    from the curly-brace.  Example:
+
+	foo.bar.baz({
+          a: 1     // most people want this line indented here
+
+  - improved the heuristics for deciding whether to insert a
+    close-paren or close-bracket when sitting on one.  It's
+    still not very smart, but it's less annoying than it was.
+
+New for 20080401 release:
+
+  * fixed problem where indenting after line with /"/ regexp always indented to column 0.  It's still not perfect, but at least it invokes the bounce-indenter now.
+    
+  * fixed hitting Enter after /** in already-terminated block comment.  It was trying to terminate the comment again. Now it will only insert the terminator if it's currently a parse error (it assumes the error is an unterminated comment.)
+    
+  * added yield into the keyword lists (was inadvertently omitted)
+
+  * per user request, made bounce-indent not record undo info
+
+  * added highlighting for simple html start/end tags in jsdoc
+
+  * don't do single-quote-matching inside comments, since typing an apostrophe is the most common case.
+    
+New for 20080402 release:
+
+  * fixed bug where missing-semicolon warning was being issued after you typed a semicolon
+
+  * when possible, ignore TAB key if it's the first time it's used on the current line and we're already indented to one of the computed alternatives.  This is configurable with (and the reasoning is documented in) the new custom variable `js2-mode-indent-ignore-first-tab'
+
+  * changed the behavior of Undo when indenting.  In a previous release, per a user request, I'd made it so that bounce-indent doesn't record Undo information.  I've changed it back to record Undo info whenever the indentation changes.  You can disable recording undo around indents with the new custom variable `js2-mode-indent-inhibit-undo'
+
+  * changed the default keybindings of js2-show/hide-element, js2-mode-show-all, and js2-mode-toggle-hide-functions/comments commands to be of the form C-c C-<letter>, instead of C-c <letter>, to be compliant with Emacs policy.  Thanks to jjfoe for the clarification.
+
+=New for 20080403 release:=
+
+Features:
+
+  * improved imenu support a bit:  it now parses inside object literals assigned to top-level variables, which catches a few dozen prototype.js functions.  Still need to handle foo.bar.baz = {...} situations.
+
+  * `js2-next-error' can now move forward or backward N errors with a numeric prefix arg
+
+  * new command, `js2-mark-defun' (analogous to `mark-defun') for marking functions and other top-level forms.  Can be invoked repeatedly to extend the selection.
+
+  * new command, `js2-narrow-to-defun' for making text outside current function invisible.
+
+Bug fixes:
+
+  * eliminated annoying flashing when re-fontifying (don't clear old colors until last possible instant)
+
+  * fixed bug in inserting close-bracket (was inserting close-paren)
+
+  * reduced typing lag in big files by checking for user input more often while parsing
+
+  * M-x rgrep and other functions that use `find-tag-default' now find a much more reasonable tag candidate.
+
+  * removed an accidental runtime dependency on the CL package
+
+Usability/behavior changes:
+
+  * added "*" to js2-electric-keys so typing "*" in a block comment will auto-indent the line.
+
+  * made improvements to filling block comments, particularly if they're indented.  Still not perfect - need to write my own fill function eventually, since `c-fill-paragraph' is getting confused.  It works a little better in Emacs 22 than in 21.
+
+  * don't insert matched quotes (in mirror mode) if next char is non-whitespace.
+
+  * turned off `js2-mode-indent-ignore-first-tab' by default - the behavior still needs some fine-tuning
+
+  * mode no longer binds C-x ' as js2-next-error; it binds C-c C-' instead.  In Emacs 22+, you can use the `next-error' command as well.
+
+  * mode no longer binds C-c C-h (hide element), which interferes with showing a prefix keymap's bindings using C-h.
+
+  * js2-node-at-point is no longer interactive.
+
+New for 20080406 release:
+
+New features:
+
+  * we now highlight assignment to undeclared variables in orange.  This can be disabled with the new `js2-highlight-external-variables` Custom variable.  The face used is `js2-external-variable-face`.
+
+  * assigning a function to a variable or property now colors that property with `js2-function-name-face` to indicate that it's a function name.
+
+  * a new Custom variable, `js2-missing-semi-one-line-override`, can be set to `t` to suppress missing-semicolon warnings in one-statement function bodies where the braces are on the same line, e.g. `function identity(x) {return x}`
+
+  * added in missing support for the e4x statement `default xml namespace = <expr>`
+
+  * added support for experimental Rhino syntax, `new expr [ ( arglist ) ] [ initializer ]`, e.g. `new Object() {a: 1, b: 2}`, which uses an object-literal following a `new` expression to add extra properties to the constructed object.  This support is off by default, and can be enabled with new Custom variable `js2-allow-rhino-new-expr-initializer`
+
+  * invalid \uxxxx unicode code points (e.g. \u980b) in strings are now underlined as warnings
+
+New syntax errors:
+
+  * continue targeting a label that doesn't label a loop
+  * TypeError when a generator function returns a value
+  * return or yield outside a function
+  * trying to ++ or -- an invalid operand
+
+New strict-mode warnings:
+
+  * statement with no side effects
+  * using `return` and `return -value-` in same function.  Can be disabled with `js2-strict-inconsistent-return-warning` variable.
+
+Bug fixes:
+
+  * no longer pukes when strings include unicode escapes, e.g. \u200e
+  * bumped up max-specpdl-size to avoid error when parsing deeply nested functions
+  * fixed incorrect auto-indentation of auto-matched close-curly in top-level constructs
+  * bind Enter key in a way that also works in terminal sessions
+  * errors now take precedence over warnings in the same location
+  * let statements now give missing-semicolon warnings (like var/const)
+
+API fixes:
+
+  * fixed bug where parser was generating for-in loops instead of for-loops and vice-versa
+  * now differentiate between empty expressions and empty statements
+  * fixed ast generation for empty {} js expressions in e4x xml literals
+  * fixed position, length and operator-position for xml dot-query ast nodes
+
+=Release notes for April 13 2008, js2-20080413.el:=
+
+Major change:  font-locking now uses the default faces, by popular demand
+
+  * js2-mode still defines certain additional faces that can be customized (such as for warnings and errors)
+  * all the js2-mode font-lock equivalents were removed: `js2-use-font-lock-faces' did not play well with multiple frames
+
+New features:
+
+  * added new options, `js2-strict-var-redeclaration-warning` and `js2-strict-var-hides-function-arg-warning`, to suppress the associated warnings if desired.
+
+  * added new option `js2-skip-preprocessor-directives` (default:  nil/false) that tells the scanner to treat # as a comment starter.  Useful for viewing Mozilla JavaScript sources, which is run through the C preprocessor.
+
+Bug fixes:
+
+  * fixed horrible problem with bounce indenting + electric insertion
+  * fixed numerous bugs in finding/reporting assignment to undeclared variables
+  * fixed bug in parsing array comprehensions with destructuring assignment
+  * fixed bug where single quote in comment screwed up paren-matching
+  * fixed enter key behavior following a regexp like /"/
+  * fixed bug in default indentation for line following a block comment
+  * fixed "." to be considered an operator for indenting continuation lines
+  * fixed "no side effects" warning for empty statement (e.g. semi after function decl)
+
+Behavior changes:
+
+  * made undo of curly-brace matching happen in two steps:  first the "}", then the "{"
+  * fixed `comment-indent-new-line` (bound to `M-j` by default) behavior for continuing 1-line comments
+  * default indentation for first line after case-label is 2 spaces in from label
+  * when cleaning up trailing whitespace on save, don't clean up current line
+
+API changes:
+
+  * always create a break-label node for "break foo" even if foo isn't a valid label
+  * added a `js2-indent-hook' for custom indentation functions
+  * js2-time macro is now debuggable with edebug
+  * fixed the symbol table pointers from function scopes to their parents.  Parent scope is only set after function is fully parsed.
+
+=Release notes for April 19 2008, js2-20080419.el:=
+
+New features:
+
+  * js2-mode now recognizes many more function declaration contexts for imenu.
+
+  * Issue #4:  added new option, `js2-allow-keywords-as-property-names`, to enable Mozilla users to use keywords as property names, e.g. `foo.return = 42` or `var x = {while: true}`.  By default this option is disabled, since IE and Rhino (and Ecma-262) don't allow it.
+
+  * Issue #32:  added new option, `js2-instanceof-has-side-effects`, for folks using xulrunner
+
+  * with a prefix arg, match-curly will now not add any whitespace between the curlies.  I.e. if you type `C-u {` it will insert {} and leave the cursor between them.
+
+  * added a force-refresh option to the JavaScript menu, for the hopefully rare cases when the mode needs to reset everything from scratch
+
+  * mode now reports undeclared variables in member expressions on the left side of an assignment.  For instance, if you write "foo.bar.baz = 6", then if foo isn't a declared variable it gets highlighted in orange.  To help avoid complaining about "undeclared" Ecma or Browser built-ins such as Array, Form or HTMLElement, we don't report unknown variables with capitalized names.
+
+  * Issue #33:  the `beginning-of-defun` and `end-of-defun` commands now invoke js2-mode equivalents, resulting in hopefully more reasonable behavior.
+
+  * added a new command key, `C-c C-o`, for showing/hiding the current comment or function
+
+  * Issue #48:  command to toggle syntax error reporting:  added menu option and new command-key, 'C-c C-w', to toggle the display of warnings and errors
+
+Bug fixes:
+
+  * fixed a whole class of problems created by regexp literals containing quotes, brackets, braces and parens
+  * fixed unreported bug where warning/error faces weren't overriding normal fontification face in some cases
+  * Issue #8:  bug in parsing an unescaped '/' in a regexp character class
+  * Issue #17:  /**/foo/**/ being parsed as a single block comment
+  * Issue #24:  mode doesn't highlight anything for certain malformed input
+  * Issue #25:  inserting escaped quote ignores existing escape char at point
+  * Issue #26:  can't insert escaped quote just before end of terminated string
+  * Issue #27:  Improper flagging of inconsistent return usage
+  * Issue #29:  spurious no-side-effects warning on the "debugger" keyword
+  * Issue #34:  Unexpected behavior with js2-mode-find-tag
+  * Issue #35:  need to define a local js2-mode-abbrev-table
+  * Issue #37:  typing # will crash Emacs
+  * Issue #38:  chokes on non-ASCII characters in identifiers
+  * Issue #40:  warning on byte-compile
+  * Issue #42:  hide-comments should hide //-comments
+  * Issue #47:  namespace cleanliness nit
+
+Behavior changes:
+
+  * changed close-curly to use the magic-close-paren function, so that typing C-u {} does the right thing.

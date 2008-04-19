@@ -1,6 +1,7 @@
 ;;; js2-mode.el --- an improved JavaScript editing mode
 
 ;; Author:  Steve Yegge (steve.yegge@gmail.com)
+;; Version: 20080403
 ;; Keywords:  javascript languages
 
 ;; This program is free software; you can redistribute it and/or
@@ -103,6 +104,9 @@
 (require 'js2-messages)
 (require 'js2-indent)
 
+;;;###autoload (add-to-list 'auto-mode-alist '("\\.js$" . js2-mode))
+
+;;;###autoload
 (defun js2-mode ()
   "Major mode for editing JavaScript code."
   (interactive)
@@ -775,23 +779,34 @@ Returns nil if point is not in a function."
   "Hide or show the foldable element at the point."
   (interactive)
   (let (comment fn pos)
-    (goto-char (point))
     (save-excursion
-      (cond
-       ((js2-block-comment-p (setq comment (js2-comment-at-point)))
-        (if (js2-mode-invisible-overlay-bounds
-             (setq pos (+ 3 (js2-node-abs-pos comment))))
-            (progn
-              (goto-char pos)
-              (js2-mode-show-element))
-          (js2-mode-hide-element)))
-       ((setq fn (js2-mode-function-at-point))
-        (setq pos (and (js2-function-node-body fn)
-                       (js2-node-abs-pos (js2-function-node-body fn))))
-        (goto-char (1+ pos))
-        (if (js2-mode-invisible-overlay-bounds)
-            (js2-mode-show-element)
-          (js2-mode-hide-element)))))))
+      (save-match-data
+        (cond
+         ;; /* ... */ comment?
+         ((js2-block-comment-p (setq comment (js2-comment-at-point)))
+          (if (js2-mode-invisible-overlay-bounds
+               (setq pos (+ 3 (js2-node-abs-pos comment))))
+              (progn
+                (goto-char pos)
+                (js2-mode-show-element))
+            (js2-mode-hide-element)))
+
+         ;; //-comment?
+         ((save-excursion
+            (back-to-indentation)
+            (looking-at js2-mode-//-comment-re))
+          (js2-mode-toggle-//-comment))
+        
+         ;; function?
+         ((setq fn (js2-mode-function-at-point))
+          (setq pos (and (js2-function-node-body fn)
+                         (js2-node-abs-pos (js2-function-node-body fn))))
+          (goto-char (1+ pos))
+          (if (js2-mode-invisible-overlay-bounds)
+              (js2-mode-show-element)
+            (js2-mode-hide-element)))
+         (t
+          (message "Nothing at point to hide or show")))))))
 
 (defun js2-mode-hide-element ()
   "Fold/hide contents of a block, showing ellipses.
@@ -816,7 +831,7 @@ Show the hidden text with \\[js2-mode-show-element]."
             (progn
               (setq beg (js2-node-abs-pos body)
                     end (+ beg (js2-node-len body)))
-              (js2-mode-flag-region (1+ beg) (1- end) t))
+              (js2-mode-flag-region (1+ beg) (1- end) 'hide))
           (message "No collapsable element found at point"))))))))
 
 (defun js2-mode-show-element ()
@@ -859,7 +874,7 @@ to open an individual entry."
              (setq body (js2-function-node-body n)))
         (setq beg (js2-node-abs-pos body)
               end (+ beg (js2-node-len body)))
-        (js2-mode-flag-region (1+ beg) (1- end) t)
+        (js2-mode-flag-region (1+ beg) (1- end) 'hide)
         nil)   ; don't process children of function
        (t
         t))))) ; keep processing other AST nodes
@@ -883,7 +898,7 @@ to open an individual entry."
                  2))                    ; /*
          (beg (+ (js2-node-abs-pos n) head))
          (end (- (+ beg (js2-node-len n)) head 2))
-         (o (js2-mode-flag-region beg end t)))
+         (o (js2-mode-flag-region beg end 'hide)))
     (overlay-put o 'comment t)))
 
 (defun js2-mode-toggle-hide-comments ()
@@ -905,7 +920,56 @@ to open an individual entry."
     (dolist (n (js2-ast-root-comments js2-mode-ast))
       (let ((format (js2-comment-node-format n)))
         (when (js2-block-comment-p n)
-          (js2-mode-hide-comment n))))))
+          (js2-mode-hide-comment n))))
+    (js2-mode-hide-//-comments)))
+
+(defsubst js2-mode-extend-//-comment (direction)
+  "Find start or end of a block of similar //-comment lines.
+DIRECTION is -1 to look back, 1 to look forward.
+INDENT is the indentation level to match.
+Returns the end-of-line position of the furthest adjacent
+//-comment line with the same indentation as the current line.
+If there is no such matching line, returns current end of line."
+  (let ((pos (point-at-eol))
+        (indent (current-indentation)))
+    (save-excursion
+      (save-match-data
+        (while (and (zerop (forward-line direction))
+                    (looking-at js2-mode-//-comment-re)
+                    (eq indent (length (match-string 1))))
+          (setq pos (point-at-eol)))
+      pos))))
+
+(defun js2-mode-hide-//-comments ()
+  "Fold adjacent 1-line comments, showing only snippet of first one."
+  (let (beg end)
+    (save-excursion
+      (save-match-data
+        (goto-char (point-min))
+        (while (re-search-forward js2-mode-//-comment-re nil t)
+          (setq beg (point)
+                end (js2-mode-extend-//-comment 1))
+          (unless (eq beg end)
+            (overlay-put (js2-mode-flag-region beg end 'hide)
+                         'comment t))
+          (goto-char end)
+          (forward-char 1))))))
+
+(defun js2-mode-toggle-//-comment ()
+  "Fold or un-fold any multi-line //-comment at point.
+Caller should have determined that this line starts with a //-comment."
+  (let* ((beg (point-at-eol))
+         (end beg))
+    (save-excursion
+      (goto-char end)
+      (if (js2-mode-invisible-overlay-bounds)
+          (js2-mode-show-element)
+        ;; else hide the comment
+        (setq beg (js2-mode-extend-//-comment -1)
+              end (js2-mode-extend-//-comment 1))
+        (unless (eq beg end)
+          (overlay-put (js2-mode-flag-region beg end 'hide)
+                       'comment t))))))
 
 (defun js2-mode-show-comments ()
   "Un-hide any hidden comments, leaving other hidden elements alone."
@@ -918,6 +982,28 @@ to open an individual entry."
       (dolist (o (overlays-at (point)))
         (when (overlay-get o 'comment)
           (js2-mode-flag-region (overlay-start o) (overlay-end o) nil))))))
+
+(defun js2-mode-display-warnings-and-errors ()
+  "Turn on display of warnings and errors."
+  (interactive)
+  (setq js2-mode-show-parse-errors t
+        js2-mode-show-strict-warnings t)
+  (js2-reparse 'force))
+
+(defun js2-mode-hide-warnings-and-errors ()
+  "Turn off display of warnings and errors."
+  (interactive)
+  (setq js2-mode-show-parse-errors nil
+        js2-mode-show-strict-warnings nil)
+  (js2-reparse 'force))
+
+(defun js2-mode-toggle-warnings-and-errors ()
+  "Toggle the display of warnings and errors.
+Some users don't like having warnings/errors reported while they type."
+  (interactive)
+  (setq js2-mode-show-parse-errors (not js2-mode-show-parse-errors)
+        js2-mode-show-strict-warnings (not js2-mode-show-strict-warnings))
+  (js2-reparse 'force))
 
 (defun js2-mode-customize ()
   (interactive)

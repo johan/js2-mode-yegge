@@ -125,6 +125,10 @@ Rewrites some of the code on the fly."
     (goto-char (point-min))
     (re-search-forward "(defvar js2-mode-version \\([0-9]+\\)")
     (replace-match version t t nil 1)
+    ;; update ELPA version number
+    (goto-char (point-min))
+    (re-search-forward "^;; Version: \\(2[0-9]+\\)")
+    (replace-match version t t nil 1)
 
     ;; move js2-mode documentation to top
     (goto-char (point-min))
@@ -173,8 +177,11 @@ Rewrites some of the code on the fly."
             (mapconcat (lambda (s)
                          (concat s ".el"))
                        js2-build-js2-mode-files "\n;;;  ")
-            "\n\n")))
-      
+            "\n\n")
+
+    ;; Close the file per the coding comment guidelines.  Also for ELPA.
+    (goto-char (point-max))
+    (insert "\n\n;;; js2.el ends here\n")))
 
 (provide 'js2-build)
 

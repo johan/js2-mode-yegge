@@ -60,7 +60,6 @@
 ;; continuation, but it should not be unreasonably difficult.
 
 ;; TODO:
-;; - get nested function scopes working (undecl var warning shows prob)
 ;; - make non-editing input restart parse at previous continuation
 ;; - in Eclipse, sibling nodes never overlap start/end ranges
 ;;   - for getters, prop name and function nodes overlap
@@ -438,7 +437,6 @@ Scanner should be initialized."
         saved-label-set
         saved-loop-set
         saved-loop-and-switch-set
-        saved-has-return-value
         saved-end-flags
         body
         n
@@ -480,8 +478,8 @@ Scanner should be initialized."
           js2-loop-set               nil
           saved-loop-and-switch-set  js2-loop-and-switch-set
           js2-loop-and-switch-set    nil
-          saved-has-return-value     js2-has-return-value
-          saved-end-flags            js2-end-flags)
+          saved-end-flags            js2-end-flags
+          js2-end-flags              0)
     (unwind-protect
         (progn
           ;; parse function parameter list
@@ -546,8 +544,7 @@ Scanner should be initialized."
               (js2-record-imenu-functions fn-node)))
 
       ;; finally
-      (setq js2-has-return-value     saved-has-return-value
-            js2-end-flags            saved-end-flags
+      (setq js2-end-flags            saved-end-flags
             js2-loop-and-switch-set  saved-loop-and-switch-set
             js2-loop-set             saved-loop-set
             js2-label-set            saved-label-set
@@ -1255,8 +1252,7 @@ but not BEFORE."
       (when inside-function
         (if (null e)
             (setq js2-end-flags (set-flag js2-end-flags js2-end-returns))
-          (setq js2-end-flags (set-flag js2-end-flags js2-end-returns-value)
-                js2-has-return-value t)))
+          (setq js2-end-flags (set-flag js2-end-flags js2-end-returns-value))))
       (setq ret (make-js2-return-node :pos pos
                                       :len (- end pos)
                                       :retval e))

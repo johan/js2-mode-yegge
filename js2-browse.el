@@ -84,19 +84,14 @@
 ;;
 ;; '((a . 1)
 ;;   (b . 2)
-;;   (foo (<value> . 3)
-;;        (bar (<value> . 6)
+;;   (foo (<definition> . 3)
+;;        (bar (<definition> . 6)
 ;;             (baz . 100)
 ;;             (zab . 200))))
 ;;
-;; Note the wacky need for a <value> name.  The <self> token can be anything
+;; Note the wacky need for a <definition> name.  The token can be anything
 ;; that isn't a valid JavaScript identifier, because you might make foo
 ;; a function and then start setting properties on it that are also functions.
-;;
-;; TODO:
-;;  - use <value-1>, <value-2> for multiple function assignments
-;;  - sort imenu entries at each level by function buffer position
-;;    - add user option to sort by name instead
 
 ;;; Code:
 
@@ -287,7 +282,7 @@ For instance, following a 'this' reference requires a parent function node."
 ;;
 ;; A completed nested imenu-alist entry looks like this:
 ;;       '(("foo"
-;;          ("<value>" . 7)
+;;          ("<definition>" . 7)
 ;;          ("bar"
 ;;           ("a" . 40)
 ;;           ("b" . 60))))
@@ -323,20 +318,20 @@ list of elements built up so far."
           (setq trie (list (js2-treeify chain)))))
 
        ;; case 2:  key is present with a single number entry:  replace w/ list
-       ;;  ("a1" 10)  +  ("a1" 20) => ("a1" (("<value>" 10)
-       ;;                                    ("<value>" 20)))
+       ;;  ("a1" 10)  +  ("a1" 20) => ("a1" (("<definition>" 10)
+       ;;                                    ("<definition>" 20)))
        ((numberp kids)
         (setcar (cdr branch)
-                (list (list "<value-1>" kids)
+                (list (list "<definition-1>" kids)
                       (if pos
-                          (list "<value-2>" pos)
+                          (list "<definition-2>" pos)
                         (js2-treeify tail)))))
 
        ;; case 3:  key is there (with kids), and we're a number entry
        (pos
         (setcdr (last kids)
                 (list
-                 (list (format "<value-%d>" 
+                 (list (format "<definition-%d>" 
                                (1+ (loop for kid in kids
                                          count (eq ?< (aref (car kid) 0)))))
                        pos))))
