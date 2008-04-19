@@ -210,13 +210,17 @@ The variable `js2-highlight-level' governs this highighting."
     (cond
      ;; case 1:  simple name, e.g. foo
      ((js2-name-node-p node)
-      (setq name (js2-name-node-name node)
-            face (if (string-match js2-ecma-global-props name)
-                     'font-lock-constant-face))
-      (when face
-        (setq pos (js2-node-pos node)
-              end (+ pos (js2-node-len node)))
-        (js2-set-face pos end face)))
+      (setq name (js2-name-node-name node))
+      ;; possible for name to be nil in rare cases - saw it when
+      ;; running js2-mode on an elisp buffer.  Might as well try to
+      ;; make it so js2-mode never barfs.
+      (when name
+        (setq face (if (string-match js2-ecma-global-props name)
+                       'font-lock-constant-face))
+        (when face
+          (setq pos (js2-node-pos node)
+                end (+ pos (js2-node-len node)))
+          (js2-set-face pos end face))))
 
      ;; case 2:  property access or function call
      ((or (js2-prop-get-node-p node)
@@ -350,35 +354,48 @@ The variable `js2-highlight-level' governs this highighting."
        ;; var foo = function() {...}
        ((js2-name-node-p left)
         (setq name left))
+
        ;; foo.bar.baz = function() {...}
        ((and (js2-prop-get-node-p left)
              (js2-name-node-p (js2-prop-get-node-prop left)))
         (setq name (js2-prop-get-node-prop left))))
+
       (when name
         (js2-set-face (setq leftpos (js2-node-abs-pos name))
                       (+ leftpos (js2-node-len name))
                       'font-lock-function-name-face
                       'record)))
+
     ;; save variable assignments so we can check for undeclared later
     ;; (can't do it here since var decls can come at end of script)
     (when (and js2-highlight-external-variables
-               (js2-name-node-p left))
-      (push (list left js2-current-scope
-                  (setq leftpos (js2-node-abs-pos left))
-                  (setq end (+ leftpos (js2-node-len left))))
+               (setq name (js2-member-expr-leftmost-name left)))
+      (push (list name js2-current-scope
+                  (setq leftpos (js2-node-abs-pos name))
+                  (setq end (+ leftpos (js2-node-len name))))
             js2-recorded-assignments))))
 
 (defun js2-highlight-undeclared-vars ()
   "After entire parse is finished, look for undeclared variable assignments.
 Have to wait until entire buffer is parsed, since JavaScript permits var
-decls to occur after they're used."
-  (dolist (entry js2-recorded-assignments)
-    (destructuring-bind (name-node scope pos end) entry
-      (unless (js2-get-defining-scope scope (js2-name-node-name name-node))
-        (js2-set-face pos end 'js2-external-variable-face 'record)
-        (js2-record-text-property pos end 'help-echo "Undeclared variable")
-        (js2-record-text-property pos end 'point-entered #'js2-echo-help))))
-  (setq js2-recorded-assignments nil))
+decls to occur after they're used.
+
+We currently use a simple heuristic to rule out complaining about built-ins:
+if the name is capitalized we don't highlight it.  This could be improved a
+bit by declaring all the Ecma global object, constructor and function names
+in a hashtable, but we'd still wind up complaining about all the DHTML
+builtins, the Mozilla builtins, etc."
+  (let (name first-char)
+    (dolist (entry js2-recorded-assignments)
+      (destructuring-bind (name-node scope pos end) entry
+        (setq name (js2-name-node-name name-node)
+              first-char (aref name 0))
+        (unless (or (and (>= first-char ?A) (<= first-char ?Z))
+                    (js2-get-defining-scope scope name))
+          (js2-set-face pos end 'js2-external-variable-face 'record)
+          (js2-record-text-property pos end 'help-echo "Undeclared variable")
+          (js2-record-text-property pos end 'point-entered #'js2-echo-help))))
+    (setq js2-recorded-assignments nil)))
                                   
 (provide 'js2-highlight)
 

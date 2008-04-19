@@ -1366,9 +1366,11 @@ property is added if the operator follows the operand."
                                                      (pos js2-token-beg)
                                                      (len (- js2-ts-cursor
                                                              js2-token-beg))
-                                                     (value js2-ts-number))))
+                                                     (value js2-ts-string)
+                                                     (num-value js2-ts-number))))
   "AST node for a number literal."
-  value)
+  value      ; the original string, e.g. "6.02e23"
+  num-value) ; the parsed number value
 
 (put 'cl-struct-js2-number-node 'js2-visitor 'js2-visit-none)
 (put 'cl-struct-js2-number-node 'js2-printer 'js2-print-number-node)
@@ -1541,7 +1543,7 @@ property `GETTER_SETTER' set to js2-GET or js2-SET. "
   (js2-print-ast (js2-prop-get-node-prop n) 0))
 
 (defstruct (js2-elem-get-node
-            (:include js2-expr-node)
+            (:include js2-prop-get-node)
             (:constructor nil)
             (:constructor make-js2-elem-get-node (&key (type js2-GETELEM)
                                                        (pos js2-ts-cursor)
@@ -1551,8 +1553,6 @@ property `GETTER_SETTER' set to js2-GET or js2-SET. "
                                                        lb
                                                        rb)))
   "AST node for an array index expression such as foo[bar]."
-  target  ; foo (can be any expression)
-  prop    ; bar (also any expression)
   lb      ; position of left-bracket, nil if omitted
   rb)     ; position of right-bracket, nil if omitted
 
@@ -1614,6 +1614,10 @@ The node type is set to js2-NULL, js2-THIS, etc.")
 
 (put 'cl-struct-js2-literal-node 'js2-visitor 'js2-visit-none)
 (put 'cl-struct-js2-literal-node 'js2-printer 'js2-print-literal-node)
+
+(defsubst js2-this-node-p (node)
+  "Return t if this node is a `js2-literal-node' of type js2-THIS."
+  (eq (js2-node-type node) js2-THIS))
 
 (defun js2-print-literal-node (n i)
   (insert (js2-make-pad i))
@@ -2138,7 +2142,7 @@ is not a statement node."
         (i 0))
     (if (not (js2-block-node-p p))
         i
-      (or (position node (js2-block-node-kids p))
+      (or (js2-position node (js2-block-node-kids p))
           0))))
 
 (defsubst js2-node-short-name (n)
@@ -2535,6 +2539,17 @@ Function returns nil if POS was not in any comment node."
         (setq node (js2-node-parent node))))
     node))
 
+(defun js2-node-parent-script-or-fn (node)
+  "Find script or function immediately enclosing NODE.
+If NODE is the ast-root, returns nil."
+  (if (js2-ast-root-p node)
+      nil
+    (setq node (js2-node-parent node))
+    (while (and node (not (or (js2-function-node-p node)
+                              (js2-script-node-p node))))
+      (setq node (js2-node-parent node)))
+    node))
+
 (defsubst js2-mode-find-first-stmt (node)
   "Search upward starting from NODE looking for a statement.
 For purposes of this function, a `js2-function-node' counts."
@@ -2542,6 +2557,13 @@ For purposes of this function, a `js2-function-node' counts."
                   (js2-function-node-p node)))
     (setq node (js2-node-parent node)))
   node)
+
+(defsubst js2-nested-function-p (node)
+  "Return t if NODE is a nested function, or is inside a nested function."
+  (js2-function-node-p (if (js2-function-node-p node)
+                           (js2-node-parent-script-or-fn node)
+                         (js2-node-parent-script-or-fn
+                          (js2-node-parent-script-or-fn node)))))
 
 (defsubst js2-mode-shift-kids (kids start offset)
   (dolist (kid kids)
@@ -2679,6 +2701,25 @@ Signals an error if NODE is not a scope node."
      (t
       (error "%s is not a scope node" (js2-node-short-name node))))
     scope))
+
+(defconst js2-scope-node-types
+  (list js2-FUNCTION js2-SCRIPT js2-BLOCK js2-LETEXPR js2-LET
+        js2-FOR js2-WHILE js2-DO))
+
+(defsubst js2-scope-node-p (node)
+  "Return t if NODE is a node associated with a `js2-scope'."
+  (memq (js2-node-type node) js2-scope-node-types))
+
+(defun js2-node-get-enclosing-scope (node)
+  "Return the innermost `js2-scope' node surrounding NODE.
+Returns nil if there is no enclosing scope node."
+  (let ((parent (js2-node-parent node)))
+    ;; loop until we have a scope-node parent with a non-nil scope
+    (while (and parent
+                (or (not (js2-scope-node-p parent))
+                    (null (js2-node-scope parent))))
+      (setq parent (js2-node-parent parent)))
+    parent))
 
 (defun js2-get-defining-scope (scope name)
   "Search up scope chain from SCOPE looking for NAME, a string or symbol.
@@ -2826,6 +2867,28 @@ NODE-OR-POSITION is a `js2-node' or subtype, or a buffer position."
       (setq n (js2-node-parent n)))
     n))
 
+(defun js2-member-expr-leftmost-name (node)
+  "For an expr such as foo.bar.baz, return leftmost node foo.
+NODE is any `js2-node' object.  If it represents a member expression,
+which is any sequence of property gets, element-gets, function calls,
+or xml descendants/filter operators, then we look at the lexically
+leftmost (first) node in the chain.  If it is a name-node we return it.
+Note that NODE can be a raw name-node and it will be returned as well.
+If NODE is not a name-node or member expression, or if it is a member
+expression whose leftmost target is not a name node, returns nil."
+  (let ((continue t)
+        result)
+    (while (and continue (not result))
+      (cond
+       ((js2-name-node-p node)
+        (setq result node))
+       ((js2-prop-get-node-p node)
+        (setq node (js2-prop-get-node-target node)))
+       ;; TODO:  handle call-nodes, xml-nodes, others?
+       (t
+        (setq continue nil))))
+    result))
+      
 (defalias #'js2-ancestor-expr #'js2-expr-at-point)
 
 (provide 'js2-ast)

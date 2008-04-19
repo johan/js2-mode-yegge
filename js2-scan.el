@@ -165,21 +165,18 @@ Returns nil and consumes nothing if TEST is not the next character."
     (js2-unget-char)))
 
 (defsubst js2-java-identifier-start-p (c)
-  "Implementation of java.lang.Character.isJavaIdentifierStart()"
-  ;; TODO:  make me Unicode-friendly.  For speed, make a 64k bit vector
-  ;; as is done in jsre.el.
   (or
    (memq c '(?$ ?_))
-   (and (>= c ?a) (<= c ?z))
-   (and (>= c ?A) (<= c ?Z))))
+   (char-is-uppercase c)
+   (char-is-lowercase c)))
 
 (defsubst js2-java-identifier-part-p (c)
   "Implementation of java.lang.Character.isJavaIdentifierPart()"
   ;; TODO:  make me Unicode-friendly.  See comments above.
   (or
    (memq c '(?$ ?_))
-   (and (>= c ?a) (<= c ?z))
-   (and (>= c ?A) (<= c ?Z))
+   (char-is-uppercase c)
+   (char-is-lowercase c)
    (and (>= c ?0) (<= c ?9))))
 
 (defsubst js2-alpha-p (c)
@@ -399,7 +396,6 @@ corresponding number.  Otherwise return -1."
         result
         base
         is-integer
-        num-string
         quote-char
         val
         look-for-slash
@@ -559,13 +555,13 @@ corresponding number.  Otherwise return -1."
                     while (js2-digit-p c))))
 
           (js2-unget-char)
-          (setq num-string (js2-get-string-from-buffer)
+          (setq js2-ts-string (js2-get-string-from-buffer)
                 js2-ts-number
                 (if (and (eq base 10) (not is-integer))
-                    (string-to-number num-string)
+                    (string-to-number js2-ts-string)
                   ;; TODO:  call runtime number-parser.  Some of it is in
                   ;; js2-util.el, but I need to port ScriptRuntime.stringToNumber.
-                  (string-to-number num-string)))
+                  (string-to-number js2-ts-string)))
           (throw 'return js2-NUMBER))
 
         ;; is it a string?
@@ -775,7 +771,9 @@ corresponding number.  Otherwise return -1."
                    js2-token-beg (- js2-ts-cursor 2)
                    js2-ts-comment-type
                    (if (js2-match-char ?*)
-                       'jsdoc
+                       (progn
+                         (setq look-for-slash t)
+                         'jsdoc)
                      'block))
              (while t
                (setq c (js2-get-char))
@@ -803,7 +801,7 @@ corresponding number.  Otherwise return -1."
               (setq js2-ts-comment-type 'preprocessor
                     js2-token-end js2-ts-cursor)
               (throw 'return js2-COMMENT))
-            (js2-unget-char))
+            (throw 'return js2-ERROR))
 
           (?%
            (if (js2-match-char ?=)
@@ -900,7 +898,9 @@ corresponding number.  Otherwise return -1."
           (js2-report-scan-error "msg.invalid.re.flag" t))
       (setq js2-ts-string (js2-collect-string js2-ts-string-buffer)
             js2-ts-regexp-flags (js2-collect-string js2-ts-regexp-flags)
-            js2-token-end js2-ts-cursor))))
+            js2-token-end js2-ts-cursor)
+      ;; tell `parse-partial-sexp' to ignore this range of chars
+      (put-text-property js2-token-beg js2-token-end 'syntax-class '(2)))))
 
 (defun js2-get-first-xml-token ()
   (setq js2-ts-xml-open-tags-count 0

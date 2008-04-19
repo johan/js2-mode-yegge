@@ -25,12 +25,11 @@
 
 (require 'js2-vars)
 
-;; Emacs21 compatibility
+;; Emacs21 compatibility, plus some stuff to avoid runtime dependency on CL
 
-(eval-and-compile
-  (unless (fboundp #'looking-back)
-    (defun looking-back (regexp &optional limit greedy)
-      "Return non-nil if text before point matches regular expression REGEXP.
+(unless (fboundp #'looking-back)
+  (defun looking-back (regexp &optional limit greedy)
+    "Return non-nil if text before point matches regular expression REGEXP.
 Like `looking-at' except matches before point, and is slower.
 LIMIT if non-nil speeds up the search by specifying a minimum
 starting position, to avoid checking matches that would start
@@ -39,84 +38,94 @@ before LIMIT.
 If GREEDY is non-nil, extend the match backwards as far as possible,
 stopping when a single additional previous character cannot be part
 of a match for REGEXP."
-      (let ((start (point))
-            (pos
-             (save-excursion
-               (and (re-search-backward (concat "\\(?:" regexp "\\)\\=") limit t)
-                    (point)))))
-        (if (and greedy pos)
-            (save-restriction
-              (narrow-to-region (point-min) start)
-              (while (and (> pos (point-min))
-                          (save-excursion
-                            (goto-char pos)
-                            (backward-char 1)
-                            (looking-at (concat "\\(?:"  regexp "\\)\\'"))))
-                (setq pos (1- pos)))
-              (save-excursion
-                (goto-char pos)
-                (looking-at (concat "\\(?:"  regexp "\\)\\'")))))
-        (not (null pos)))))
+    (let ((start (point))
+          (pos
+           (save-excursion
+             (and (re-search-backward (concat "\\(?:" regexp "\\)\\=") limit t)
+                  (point)))))
+      (if (and greedy pos)
+          (save-restriction
+            (narrow-to-region (point-min) start)
+            (while (and (> pos (point-min))
+                        (save-excursion
+                          (goto-char pos)
+                          (backward-char 1)
+                          (looking-at (concat "\\(?:"  regexp "\\)\\'"))))
+              (setq pos (1- pos)))
+            (save-excursion
+              (goto-char pos)
+              (looking-at (concat "\\(?:"  regexp "\\)\\'")))))
+      (not (null pos)))))
 
-  (unless (fboundp #'copy-overlay)
-    (defun copy-overlay (o)
-      "Return a copy of overlay O."
-      (let ((o1 (make-overlay (overlay-start o) (overlay-end o)
-                              ;; FIXME: there's no easy way to find the
-                              ;; insertion-type of the two markers.
-                              (overlay-buffer o)))
-            (props (overlay-properties o)))
-        (while props
-          (overlay-put o1 (pop props) (pop props)))
-        o1)))
+(unless (fboundp #'copy-overlay)
+  (defun copy-overlay (o)
+    "Return a copy of overlay O."
+    (let ((o1 (make-overlay (overlay-start o) (overlay-end o)
+                            ;; FIXME: there's no easy way to find the
+                            ;; insertion-type of the two markers.
+                            (overlay-buffer o)))
+          (props (overlay-properties o)))
+      (while props
+        (overlay-put o1 (pop props) (pop props)))
+      o1)))
 
-  (unless (fboundp #'remove-overlays)
-    (defun remove-overlays (&optional beg end name val)
-      "Clear BEG and END of overlays whose property NAME has value VAL.
+(unless (fboundp #'remove-overlays)
+  (defun remove-overlays (&optional beg end name val)
+    "Clear BEG and END of overlays whose property NAME has value VAL.
 Overlays might be moved and/or split.
 BEG and END default respectively to the beginning and end of buffer."
-      (unless beg (setq beg (point-min)))
-      (unless end (setq end (point-max)))
-      (if (< end beg)
-          (setq beg (prog1 end (setq end beg))))
-      (save-excursion
-        (dolist (o (overlays-in beg end))
-          (when (eq (overlay-get o name) val)
-            ;; Either push this overlay outside beg...end
-            ;; or split it to exclude beg...end
-            ;; or delete it entirely (if it is contained in beg...end).
-            (if (< (overlay-start o) beg)
-                (if (> (overlay-end o) end)
-                    (progn
-                      (move-overlay (copy-overlay o)
-                                    (overlay-start o) beg)
-                      (move-overlay o end (overlay-end o)))
-                  (move-overlay o (overlay-start o) beg))
+    (unless beg (setq beg (point-min)))
+    (unless end (setq end (point-max)))
+    (if (< end beg)
+        (setq beg (prog1 end (setq end beg))))
+    (save-excursion
+      (dolist (o (overlays-in beg end))
+        (when (eq (overlay-get o name) val)
+          ;; Either push this overlay outside beg...end
+          ;; or split it to exclude beg...end
+          ;; or delete it entirely (if it is contained in beg...end).
+          (if (< (overlay-start o) beg)
               (if (> (overlay-end o) end)
-                  (move-overlay o end (overlay-end o))
-                (delete-overlay o))))))))
+                  (progn
+                    (move-overlay (copy-overlay o)
+                                  (overlay-start o) beg)
+                    (move-overlay o end (overlay-end o)))
+                (move-overlay o (overlay-start o) beg))
+            (if (> (overlay-end o) end)
+                (move-overlay o end (overlay-end o))
+              (delete-overlay o))))))))
 
-  ;; a version of delete-if that only uses macros from 'cl package
-  (unless (fboundp #'delete-if)
-    (defun delete-if (predicate list)
-      "Remove all items satisfying PREDICATE in LIST."
-      (loop for item in list
-            if (not (funcall predicate item))
-            collect item)))
+;; we don't want a runtime dependency on the CL package, so define
+;; our own versions of these functions.
 
-  ;; ditto
-  (unless (fboundp #'position)
-    (defun position (element list)
-      "Find 0-indexed position of ELEMENT in LIST comparing with `eq'.
+(defun js2-delete-if (predicate list)
+  "Remove all items satisfying PREDICATE in LIST."
+  (loop for item in list
+        if (not (funcall predicate item))
+        collect item))
+
+(defun js2-position (element list)
+  "Find 0-indexed position of ELEMENT in LIST comparing with `eq'.
 Returns nil if element is not found in the list."
-      (let ((count 0)
-            found)
-        (while (and list (not found))
-          (if (eq element (car list))
-              (setq found t)
-            (setq count (1+ count)
-                  list (cdr list))))
-        (if found count)))))
+  (let ((count 0)
+        found)
+    (while (and list (not found))
+      (if (eq element (car list))
+          (setq found t)
+        (setq count (1+ count)
+              list (cdr list))))
+    (if found count)))
+
+(defun js2-find-if (predicate list)
+  "Find first item satisfying PREDICATE in LIST."
+  (let (result)
+    (while (and list (not result))
+      (if (funcall predicate (car list))
+          (setq result (car list)))
+      (setq list (cdr list)))
+    result))
+
+;;; end Emacs 21 compat
 
 (defmacro js2-time (form)
   "Evaluate FORM, discard result, and return elapsed time in sec"
@@ -244,6 +253,16 @@ If the buffer doesn't exist, it's created."
     (save-excursion
       (set-buffer buffer)
       ,form)))
+
+(defsubst char-is-uppercase (c)
+  "Return t if C is an uppercase character.
+Handles unicode and latin chars properly."
+  (/= c (downcase c)))
+
+(defsubst char-is-lowercase (c)
+  "Return t if C is an uppercase character.
+Handles unicode and latin chars properly."
+  (/= c (upcase c)))
 
 (put 'with-buffer 'lisp-indent-function 1)
 (def-edebug-spec with-buffer t)

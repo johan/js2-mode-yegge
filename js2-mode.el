@@ -31,6 +31,7 @@
 ;;    - show some or all function bodies as {...}
 ;;    - show some or all block comments as /*...*/
 ;;  - context-sensitive menu bar and popup menus
+;;  - code browsing using the `imenu' package
 ;;  - typing helpers (e.g. inserting matching braces/parens)
 ;;  - many customization options
 ;;
@@ -68,34 +69,25 @@
 ;; indentation.  The current compromise is that the tab key lets you cycle among
 ;; various likely indentation points, similar to the behavior of python-mode.
 ;;
-;; This code is part of a larger project, in progress, to enable writing
-;; Emacs customizations in JavaScript.
-;;
 ;; This mode does not yet work with mmm-mode ("multiple major modes" mode),
 ;; although it could possibly be made to do so with some effort.
 ;;
-;; Please email bug reports and suggestions to the author.
+;; This code is part of a larger project, in progress, to enable writing
+;; Emacs customizations in JavaScript.
+;;
+;; Please email bug reports and suggestions to the author, or submit them
+;; at http://code.google.com/p/js2-mode/issues
 
 ;; TODO:
-;;  - add a command to show syntax errors on demand (for when they're off)
-;;  - better imenu support (see `js2-parse-record-imenu' for details)
-;;  - add in remaining Ecma strict-mode warnings
-;;  - find some way to support script tags in html files
-;;    - maybe use mmm and have scanner skip mmm non-js regions?
 ;;  - set a text prop on autoinserted delimiters and don't biff user-entered ones
-;;  - find a way to support JSON
-;;  - parse and highlight e4x literals
-;;  - parse and highlight regexps
-;;  - define Eclipse and IntellJ color schemes
+;;  - clean up xml member-expr parsing
+;;  - add in remaining Ecma strict-mode warnings
 ;;  - get more use out of the symbol table:
-;;    - jump to declaration
+;;    - jump to declaration (put hyperlinks on all non-decl var usages?)
 ;;    - rename variable/function
 ;;    - warn on unused var
-;;    - warn on assignment to const
 ;;  - add some dabbrev-expansions for built-in keywords like finally, function
 ;;  - add at least some completion support, e.g. for built-ins
-;;  - use fringe to show (and jump to) error locations in Emacs 22+
-;;  - better context menus
 ;;  - code formatting
 
 ;;; Code:
@@ -122,6 +114,7 @@
         mode-name "JavaScript-IDE"
         comment-start "//"  ; used by comment-region; don't change it
         comment-end "")
+  (setq local-abbrev-table js2-mode-abbrev-table)
   (set (make-local-variable 'max-lisp-eval-depth)
        (max max-lisp-eval-depth 3000))
   (set (make-local-variable 'indent-line-function) #'js2-indent-line)
@@ -129,6 +122,11 @@
   (set (make-local-variable 'fill-paragraph-function) #'js2-fill-paragraph)
   (set (make-local-variable 'before-save-hook) #'js2-before-save)
   (set (make-local-variable 'next-error-function) #'js2-next-error)
+  (set (make-local-variable 'beginning-of-defun-function) #'js2-beginning-of-defun)
+  (set (make-local-variable 'end-of-defun-function) #'js2-end-of-defun)
+  ;; We un-confuse `parse-partial-sexp' by setting syntax-table properties
+  ;; for characters inside regexp literals.
+  (set (make-local-variable 'parse-sexp-lookup-properties) t)
   ;; this is necessary to make `show-paren-function' work properly
   (set (make-local-variable 'parse-sexp-ignore-comments) t)
   ;; needed for M-x rgrep, among other things
@@ -143,7 +141,7 @@
         c-syntactic-ws-start js2-syntactic-ws-start
         c-syntactic-ws-end js2-syntactic-ws-end
         c-syntactic-eol js2-syntactic-eol)
-  (if (>= emacs-major-version 22)
+  (if js2-emacs22
       (c-setup-paragraph-variables))
 
   ;; We do our own syntax highlighting based on the parse tree.
@@ -164,18 +162,16 @@
 
   (add-hook 'change-major-mode-hook #'js2-mode-exit nil t)
   (add-hook 'after-change-functions #'js2-mode-edit nil t)
-  ;; this needs work.  see python-mode's version.
   (setq imenu-create-index-function #'js2-mode-create-imenu-index)
   (imenu-add-to-menubar (concat "IM-" mode-name))
   (when js2-mirror-mode
     (js2-enter-mirror-mode))
   (add-to-invisibility-spec '(js2-outline . t))
   (set (make-local-variable 'line-move-ignore-invisible) t)
-  (set (make-local-variable 'forward-sexp-function)
-       #'js2-mode-forward-sexp)
+  (set (make-local-variable 'forward-sexp-function) #'js2-mode-forward-sexp)
   (setq js2-mode-functions-hidden nil
-        js2-mode-comments-hidden nil)
-  (setq js2-mode-buffer-dirty-p t
+        js2-mode-comments-hidden nil
+        js2-mode-buffer-dirty-p t
         js2-mode-parsing nil)
   (js2-reparse)
   (run-hooks 'js2-mode-hook))
@@ -226,17 +222,18 @@ You can disable this by customizing `js2-cleanup-whitespace'."
   (js2-mode-hide-overlay)
   (js2-mode-reset-timer))
 
-(defun js2-reparse ()
+(defun js2-reparse (&optional force)
   "Re-parse current buffer after user finishes some data entry.
 If we get any user input while parsing, including cursor motion,
-we discard the parse and reschedule it."
+we discard the parse and reschedule it.  If FORCE is nil, then the
+buffer will only rebuild its `js2-mode-ast' if the buffer is dirty."
   (let (time
         interrupted-p
         (js2-compiler-strict-mode js2-mode-show-strict-warnings))
     (unless js2-mode-parsing
       (setq js2-mode-parsing t)
       (unwind-protect
-          (when js2-mode-buffer-dirty-p
+          (when (or js2-mode-buffer-dirty-p force)
             (js2-with-unmodifying-text-property-changes
               (setq js2-mode-buffer-dirty-p nil
                     js2-mode-fontifications nil
@@ -304,7 +301,7 @@ we discard the parse and reschedule it."
         (delete-overlay js2-mode-node-overlay)
         (setq js2-mode-node-overlay nil)))))
 
-(defun js2-reset ()
+(defun js2-mode-reset ()
   "Debugging helper; resets everything."
   (interactive)
   (js2-mode-exit)
@@ -326,7 +323,9 @@ we discard the parse and reschedule it."
   "Apply fontifications recorded during parsing."
   ;; We defer clearing faces as long as possible to eliminate flashing.
   (js2-clear-face (point-min) (point-max))
-  (dolist (f js2-mode-fontifications)
+  ;; have to reverse the recorded fontifications so that errors and
+  ;; warnings overwrite the normal fontifications
+  (dolist (f (nreverse js2-mode-fontifications))
     (put-text-property (first f) (second f) 'face (third f)))
   (setq js2-mode-fontifications nil)
   (dolist (p js2-mode-deferred-properties)
@@ -366,11 +365,7 @@ we discard the parse and reschedule it."
                         (parse-partial-sexp (point-min) (point)))))
     (cond
      ;; check if we're inside a string
-     ((and (nth 3 parse-status)
-           ;; don't be confused by a regexp like /"/
-           (not (save-excursion
-                  (js2-regexp-node-p (js2-node-at-point
-                                      (nth 8 parse-status))))))
+     ((nth 3 parse-status)
       (js2-mode-split-string parse-status))
      ;; check if inside a block comment
      ((nth 4 parse-status)
@@ -566,6 +561,7 @@ Also moves past comment delimiters when inside comments."
   on insertion."
   (interactive)
   (define-key js2-mode-map (read-kbd-macro "{")  'js2-mode-match-curly)
+  (define-key js2-mode-map (read-kbd-macro "}")  'js2-mode-magic-close-paren)
   (define-key js2-mode-map (read-kbd-macro "\"") 'js2-mode-match-double-quote)
   (define-key js2-mode-map (read-kbd-macro "'")  'js2-mode-match-single-quote)
   (define-key js2-mode-map (read-kbd-macro "(")  'js2-mode-match-paren)
@@ -601,31 +597,34 @@ Actually returns the quote character that begins the string."
      (or (nth 3 parse-state)
          (nth 4 parse-state)))))
 
-(defun js2-mode-match-curly ()
+(defun js2-mode-match-curly (arg)
   "Insert matching curly-brace."
-  (interactive)
+  (interactive "p")
   (insert "{")
-  (unless (or (not (looking-at "\\s-*$"))
-              (js2-mode-inside-comment-or-string))
-    (undo-boundary)
+  (if current-prefix-arg
+      (save-excursion
+        (insert "}"))
+    (unless (or (not (looking-at "\\s-*$"))
+                (js2-mode-inside-comment-or-string))
+      (undo-boundary)
 
-    ;; absolutely mystifying bug:  when inserting the next "\n",
-    ;; the buffer-undo-list is given two new entries:  the inserted range,
-    ;; and the incorrect position of the point.  It's recorded incorrectly
-    ;; as being before the opening "{", not after it.  But it's recorded
-    ;; as the correct value if you're debugging `js2-mode-match-curly'
-    ;; in edebug.  I have no idea why it's doing this, but incrementing
-    ;; the inserted position fixes the problem, so that the undo takes us
-    ;; back to just after the user-inserted "{".
-    (insert "\n")
-    (ignore-errors
-      (incf (cadr buffer-undo-list)))
+      ;; absolutely mystifying bug:  when inserting the next "\n",
+      ;; the buffer-undo-list is given two new entries:  the inserted range,
+      ;; and the incorrect position of the point.  It's recorded incorrectly
+      ;; as being before the opening "{", not after it.  But it's recorded
+      ;; as the correct value if you're debugging `js2-mode-match-curly'
+      ;; in edebug.  I have no idea why it's doing this, but incrementing
+      ;; the inserted position fixes the problem, so that the undo takes us
+      ;; back to just after the user-inserted "{".
+      (insert "\n")
+      (ignore-errors
+        (incf (cadr buffer-undo-list)))
 
-    (js2-indent-line)
-    (save-excursion
-      (insert "\n}")
-      (let ((js2-bounce-indent-flag (js2-code-at-bol-p)))
-        (js2-indent-line)))))
+      (js2-indent-line)
+      (save-excursion
+        (insert "\n}")
+        (let ((js2-bounce-indent-flag (js2-code-at-bol-p)))
+          (js2-indent-line))))))
     
 (defun js2-mode-match-bracket ()
   "Insert matching bracket."
@@ -662,13 +661,17 @@ Actually returns the quote character that begins the string."
         (save-excursion
           (insert quote-string))))
      ((looking-at quote-string)
-      (forward-char 1))
+      (if (looking-back "[^\\]\\\\")
+          (insert quote-string)
+        (forward-char 1)))
      ((and js2-mode-escape-quotes
            (save-excursion
              (save-match-data
                (re-search-forward quote-string (point-at-eol) t))))
-      ;; inside terminated string, escape quote
-      (insert (concat "\\" quote-string)))
+      ;; inside terminated string, escape quote (unless already escaped)
+      (insert (if (looking-back "[^\\]\\\\")
+                  quote-string
+                (concat "\\" quote-string))))
      (t
       (insert quote-string)))))        ; else terminate the string
       
@@ -698,6 +701,8 @@ Uses some heuristics to try to figure out the right thing to do."
                  40)            ; open-paren
                 ((eq close 93)  ; close-bracket
                  91)            ; open-bracket
+                ((eq close ?})
+                 ?{)
                 (t nil))))
     (if (and (looking-at (string close))
              (eq open (char-after open-pos))
@@ -1004,7 +1009,14 @@ destroying the region selection."
 (defun js2-mode-create-imenu-index ()
   "Return an alist for `imenu--index-alist'."
   ;; This is built up in `js2-parse-record-imenu' during parsing.
-  (nreverse js2-imenu-recorder))
+  (when js2-mode-ast
+    ;; if we have an ast but no recorder, they're requesting a rescan
+    (unless js2-imenu-recorder
+      (js2-reparse 'force))
+    (prog1
+        (js2-build-imenu-index)
+      (setq js2-imenu-recorder nil
+            js2-imenu-function-map nil))))
 
 (defun js2-mode-find-tag ()
   "Replacement for `find-tag-default'.
@@ -1012,11 +1024,15 @@ destroying the region selection."
   (let (beg end)
     (js2-with-underscore-as-word-syntax
       (save-excursion
-        (setq beg (progn (forward-word 1) (point))
-              end (progn (forward-word -1) (point))))
-      (replace-regexp-in-string
-       "[\"']" ""
-       (buffer-substring-no-properties beg end)))))
+        (if (and (not (looking-at "[A-Za-z0-9_$]"))
+                 (looking-back "[A-Za-z0-9_$]"))
+            (setq beg (progn (forward-word -1) (point))
+                  end (progn (forward-word 1) (point)))
+          (setq beg (progn (forward-word 1) (point))
+                end (progn (forward-word -1) (point))))
+        (replace-regexp-in-string
+         "[\"']" ""
+         (buffer-substring-no-properties beg end))))))
 
 (defun js2-mode-forward-sibling ()
   "Move to the end of the sibling following point in parent.
@@ -1027,6 +1043,39 @@ Returns non-nil if successful, or nil if there was no following sibling."
     (when (setq sib (js2-node-find-child-after (point) parent))
       (goto-char (+ (js2-node-abs-pos sib)
                     (js2-node-len sib))))))
+
+(defun js2-mode-backward-sibling ()
+  "Move to the beginning of the sibling node preceding point in parent.
+Parent is defined as the enclosing script or function."
+  (let* ((node (js2-node-at-point))
+         (parent (js2-mode-find-enclosing-fn node))
+         sib)
+    (when (setq sib (js2-node-find-child-before (point) parent))
+      (goto-char (js2-node-abs-pos sib)))))
+
+(defun js2-beginning-of-defun ()
+  "Go to line on which current function starts, and return non-nil.
+If we're not in a function, go to beginning of previous script-level element."
+  (interactive)
+  (let ((parent (js2-node-parent-script-or-fn (js2-node-at-point)))
+        pos sib)
+    (cond
+     ((and (js2-function-node-p parent)
+           (not (eq (point) (setq pos (js2-node-abs-pos parent)))))
+      (goto-char pos))
+     (t
+      (js2-mode-backward-sibling)))))
+
+(defun js2-end-of-defun ()
+  "Go to the char after the last position of the current function.
+If we're not in a function, skips over the next script-level element."
+  (interactive)
+  (let ((parent (js2-node-parent-script-or-fn (js2-node-at-point))))
+    (if (not (js2-function-node-p parent))
+        ;; punt:  skip over next script-level element beyond point
+        (js2-mode-forward-sibling)
+      (goto-char (+ 1 (+ (js2-node-abs-pos parent)
+                         (js2-node-len parent)))))))
 
 (defun js2-mark-defun (&optional allow-extend)
   "Put mark at end of this function, point at beginning.
@@ -1085,7 +1134,7 @@ it marks the next defun after the ones already marked."
     (unless (js2-ast-root-p fn)
       (narrow-to-region beg (+ beg (js2-node-len fn))))))
 
-(defalias 'js2r 'js2-reset)
+(defalias 'js2r 'js2-mode-reset)
 
 (provide 'js2-mode)
 

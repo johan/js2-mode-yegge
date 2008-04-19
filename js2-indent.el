@@ -527,7 +527,7 @@ bracket, brace and statement nesting."
             (setq computed-pos 0))
            ;; case 4:  on intermediate position:  cycle to next position
            (t
-            (setq computed-pos (position (second pos) positions))))
+            (setq computed-pos (js2-position (second pos) positions))))
 
           ;; see if any hooks want to indent; otherwise we do it
           (loop with result = nil

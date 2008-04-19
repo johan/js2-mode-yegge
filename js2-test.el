@@ -34,30 +34,18 @@
 (defun js2-macload ()
   (interactive)
   (find-file-noselect
-   "/home/stevey/src/mozilla/js/rhino/src/org/mozilla/javascript/Parser.java"))
+   (concat emacs-root
+           "src/mozilla/js/rhino/src/org/mozilla/javascript/Parser.java")))
 
 (defun js2-workload ()
   (interactive
    (find-file-noselect
     "/home/stevey/no_crawl/src/js/rhino/src/org/mozilla/javascript/Parser.java")))
 
-(defun rhino-load ()
-  (interactive)
-   (find-file
-    "/home/stevey/trunk/google3/third_party/java/rhino/src/mozilla/js/rhino/src/org/mozilla/javascript/ast/Parser.java"))
-
-(defun rhino-compile-setup ()
-  (interactive)
-  (require 'compile)
-  (set (make-local-variable 'compile-command)
-       "cd /home/stevey/trunk/google3/third_party/java/rhino/src/mozilla/js/rhino && ant -emacs compile-parser")
-  (message "compile command set for rhino"))
-
-(defalias 'rcs 'rhino-compile-setup)
-
 (defun js2-mode-load ()
   (interactive)
-  (let ((files (find-file-noselect "/home/stevey/emacs/es4/js2-*.el" t nil t)))
+  (let ((files (find-file-noselect
+                (concat emacs-root "emacs/es4/js2-*.el") t nil t)))
     (dolist (buf files)
       (unless (member (buffer-name buf) '("js2-interp.el" "js2-ir.el"))
         (message "evaluating %s" buf)
@@ -140,6 +128,51 @@ Make sure you byte-compile first or it'll be way slow."
         (goto-char js2-ts-cursor)
         (incf count))
       (message "%d tokens" count))))
+
+;;; stuff for dealing with my Rhino parser rewrite
+
+(defun rhino-load ()
+  (interactive)
+   (find-file
+    "/home/stevey/trunk/google3/third_party/java/rhino/src/mozilla/js/rhino/src/org/mozilla/javascript/ast/Parser.java"))
+
+(defun rhino-compile-setup ()
+  (interactive)
+  (require 'compile)
+  (set (make-local-variable 'compile-command)
+       "cd /home/stevey/trunk/google3/third_party/java/rhino/src/mozilla/js/rhino && ant -emacs compile-parser")
+  (message "compile command set for rhino"))
+
+(defalias 'rcs 'rhino-compile-setup)
+
+(defvar rhino-jdb-port 5005)
+
+(defvar rhino-jdb-root "/home/stevey/trunk/google3/third_party/java/rhino/src/mozilla/js/rhino")
+
+(defvar rhino-java-class-path
+  '("/home/stevey/trunk/google3/third_party/java/rhino/src/mozilla/js/rhino/build/classes"))
+
+(defvar rhino-source-path
+  '("/home/stevey/trunk/google3/third_party/java/rhino/src/mozilla/js/rhino/src/"))
+
+;; alt root:  /home/stevey/no_crawl/src/js/rhino
+
+(defun rhino-jdb ()
+  "Start JDB and attach it to a running process on `rhino-jdb-port'.
+Sets source path to `rhino-jdb-root', where the rhino build.xml lives."
+  (interactive)
+  (require 'gud)
+  (let ((jdb-command
+         (format "%s -attach %s -sourcepath%s"
+                 gud-jdb-command-name
+                 rhino-jdb-port
+                 (mapconcat #'identity (append rhino-source-path
+                                               rhino-java-class-path)
+                            ":"))))
+    (if (not (string= jdb-command (car gud-jdb-history)))
+        (push jdb-command gud-jdb-history))
+    (jdb jdb-command)))
+
 
 (provide 'js2-test)
 

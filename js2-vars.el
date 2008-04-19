@@ -28,7 +28,7 @@
   (require 'cc-langs)    ; it's here in Emacs 21...
   (require 'cc-engine))  ; for `c-paragraph-start' et. al.
 
-(defvar emacs22 (>= emacs-major-version 22))
+(defvar js2-emacs22 (>= emacs-major-version 22))
 
 (defcustom js2-highlight-level 2
   "Amount of syntax highlighting to perform.
@@ -894,7 +894,7 @@ Not currently used."
   :group 'js2-mode)
 
 (defface js2-jsdoc-html-tag-name-face
-  (if emacs22
+  (if js2-emacs22
       '((((class color) (min-colors 88) (background light))
          (:foreground "rosybrown"))
         (((class color) (min-colors 8) (background dark))
@@ -910,7 +910,7 @@ Not currently used."
   :group 'js2-mode)
 
 (defface js2-jsdoc-html-tag-delimiter-face
-  (if emacs22
+  (if js2-emacs22
       '((((class color) (min-colors 88) (background light))
          (:foreground "dark khaki"))
         (((class color) (min-colors 8) (background dark))
@@ -978,12 +978,9 @@ another file, or you've got a potential bug."
     (define-key map [menu-bar javascript separator-1]
       '("--"))
 
-    (define-key map [menu-bar javascript js2-toggle-function]
-      '(menu-item "Show/collapse element" js2-mode-toggle-element
-                  :help "Hide or show function body or comment"))
-
-    (define-key map [menu-bar javascript separator-1]
-      '("--"))
+    (define-key map [menu-bar javascript js2-force-refresh]
+      '(menu-item "Force buffer refresh" js2-mode-reset
+                  :help "Re-parse the buffer from scratch"))
 
     (define-key map [menu-bar javascript next-error]
       '(menu-item "Next warning or error" js2-next-error
@@ -991,6 +988,10 @@ another file, or you've got a potential bug."
                                 (or (js2-ast-root-errors js2-mode-ast)
                                     (js2-ast-root-warnings js2-mode-ast)))
                   :help "Move to next warning or error"))
+
+    (define-key map [menu-bar javascript js2-toggle-function]
+      '(menu-item "Show/collapse element" js2-mode-toggle-element
+                  :help "Hide or show function body or comment"))
 
     (define-key map [menu-bar javascript show-comments]
       '(menu-item "Show block comments" js2-mode-toggle-hide-comments
@@ -1046,6 +1047,9 @@ another file, or you've got a potential bug."
 (defvar js2-imenu-recorder nil "Private variable")
 (make-variable-buffer-local 'js2-imenu-recorder)
 
+(defvar js2-imenu-function-map nil "Private variable")
+(make-variable-buffer-local 'js2-imenu-function-map)
+
 (defvar js2-paragraph-start
   "\\(@[a-zA-Z]+\\>\\|$\\)")
 
@@ -1083,6 +1087,10 @@ another file, or you've got a potential bug."
     (c-populate-syntax-table table)
     table)
   "Syntax table used in js2-mode buffers.")
+
+(defvar js2-mode-abbrev-table nil
+  "Abbrev table in use in `js2-mode' buffers.")
+(define-abbrev-table 'js2-mode-abbrev-table ())
 
 (defvar js2-mode-must-byte-compile (not js2-mode-dev-mode-p)
   "Non-nil to have `js2-mode' signal an error if not byte-compiled.")

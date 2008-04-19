@@ -38,6 +38,7 @@
     "js2-messages"
     "js2-ast"
     "js2-highlight"
+    "js2-browse"
     "js2-parse"
     "js2-indent"
     "js2-mode")
