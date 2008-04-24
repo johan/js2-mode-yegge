@@ -157,6 +157,27 @@ Make sure you byte-compile first or it'll be way slow."
 
 ;; alt root:  /home/stevey/no_crawl/src/js/rhino
 
+;; gud-mode has a bug in its toolbar image names
+(when (string-match "^23.0.50" emacs-version)
+  (defvar gud-tool-bar-map
+    (if (display-graphic-p)
+        (let ((map (make-sparse-keymap)))
+          (dolist (x '((gud-break . "gud/break")
+                       (gud-remove . "gud/remove")
+                       (gud-print . "gud/print")
+                       (gud-display . "gud/display")
+                       (gud-run . "gud/run")
+                       (gud-goto . "gud/goto")
+                       (gud-cont . "gud/cont")
+                       (gud-step . "gud/step")
+                       (gud-next . "gud/next")
+                       (gud-finish . "gud/finish")
+                       (gud-up . "gud/up")
+                       (gud-down . "gud/down"))
+                     map)
+            (tool-bar-local-item-from-menu
+             (car x) (cdr x) map gud-minor-mode-map))))))
+
 (defun rhino-jdb ()
   "Start JDB and attach it to a running process on `rhino-jdb-port'.
 Sets source path to `rhino-jdb-root', where the rhino build.xml lives."
