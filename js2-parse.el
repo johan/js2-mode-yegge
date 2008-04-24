@@ -953,6 +953,12 @@ Parses for, for-in, and for each-in statements."
       (when (null cond)
         (setq cond (js2-infix-node-right init)
               init (js2-infix-node-left init)))
+
+      ;; TODO:  fix let-node and then check kids for it here
+      (if (and (eq (setq tt (js2-node-type init)) js2-VAR)
+               (> (length (js2-var-decl-node-kids init)) 1))
+          (js2-report-error "msg.mult.index"))
+
       (setq pn (make-js2-for-in-node :iterator init
                                      :object cond
                                      :in-pos in-pos
@@ -1485,7 +1491,7 @@ the node position coincides with the first var-init child."
       (when nbeg
         (js2-set-face nbeg nend
                       (if (js2-function-node-p init)
-                          'js2-function-name-face
+                          'font-lock-function-name-face
                         'font-lock-variable-name-face)
                       'record))
       (if destructuring
