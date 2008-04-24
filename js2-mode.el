@@ -379,7 +379,10 @@ buffer will only rebuild its `js2-mode-ast' if the buffer is dirty."
       (if js2-indent-on-enter-key
           (let ((js2-bounce-indent-flag nil))
             (js2-indent-line)))
-      (insert "\n")))))
+      (insert "\n")
+      (if js2-enter-indents-newline
+          (let ((js2-bounce-indent-flag nil))
+            (js2-indent-line)))))))
 
 (defun js2-mode-split-string (parse-status)
   "Turn a newline in mid-string into a string concatenation."
@@ -712,7 +715,8 @@ Uses some heuristics to try to figure out the right thing to do."
              (eq open (char-after open-pos))
              (js2-same-line open-pos))
         (forward-char 1)
-      (insert (string close)))))
+      (insert (string close)))
+    (blink-matching-open)))
 
 (defun js2-mode-wait-for-parse (callback)
   "Invoke CALLBACK when parsing is finished.

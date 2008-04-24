@@ -101,6 +101,12 @@ This is unusual for Emacs modes but common in IDEs like Eclipse."
   :type 'boolean
   :group 'js2-mode)
 
+(defcustom js2-enter-indents-newline t
+  "Non-nil to have Enter/Return key indent the newly-inserted line.
+This is unusual for Emacs modes but common in IDEs like Eclipse."
+  :type 'boolean
+  :group 'js2-mode)
+
 (defcustom js2-rebind-eol-bol-keys t
   "Non-nil to rebind beginning-of-line and end-of-line keys.
 If non-nil, bounce between bol/eol and first/last non-whitespace char."
