@@ -211,3 +211,13 @@ Bug fixes:
 Behavior changes:
 
   * changed close-curly to use the magic-close-paren function, so that typing C-u {} does the right thing.
+
+=Release notes for xxx, js2-2008xxxx.el:=
+
+New features:
+
+  * report error on multiple var-decls in for-in loop, e.g. for (var x, y in foo)
+
+Bug fixes:
+
+  * Issue #63:  jsdoc highlighting was broken

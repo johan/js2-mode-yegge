@@ -129,12 +129,13 @@ Make sure you byte-compile first or it'll be way slow."
         (incf count))
       (message "%d tokens" count))))
 
-;;; stuff for dealing with my Rhino parser rewrite
+;;; stuff for dealing with my Rhino parser rewrite -- needs to move
 
 (defun rhino-load ()
   (interactive)
    (find-file
-    "/home/stevey/trunk/google3/third_party/java/rhino/src/mozilla/js/rhino/src/org/mozilla/javascript/ast/Parser.java"))
+    "/home/stevey/trunk/google3/third_party/java/rhino/src/mozilla/js/rhino/src/org/mozilla/javascript/ast/Parser.java")
+   (rhino-compile-setup))
 
 (defun rhino-compile-setup ()
   (interactive)

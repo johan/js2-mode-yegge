@@ -317,33 +317,34 @@ The variable `js2-highlight-level' governs this highighting."
   "Highlight doc comment tags."
   (let ((comments (js2-ast-root-comments ast))
         beg end)
-    (dolist (node comments)
-      (when (eq (js2-comment-node-format node) 'jsdoc)
-        (setq beg (js2-node-abs-pos node)
-              end (+ beg (js2-node-len node)))
-        (save-restriction
-          (narrow-to-region beg end)
-          (dolist (re (list js2-jsdoc-param-tag-regexp
-                            js2-jsdoc-typed-tag-regexp
-                            js2-jsdoc-arg-tag-regexp
-                            js2-jsdoc-link-tag-regexp
-                            js2-jsdoc-see-tag-regexp
-                            js2-jsdoc-empty-tag-regexp))
-          (goto-char beg)
-          (while (re-search-forward re nil t)
-            (js2-jsdoc-highlight-helper)))
-          ;; simple highlighting for html tags
-          (goto-char beg)
-          (while (re-search-forward js2-jsdoc-html-tag-regexp nil t)
-            (js2-set-face (match-beginning 1)
-                          (match-end 1)
-                          'js2-jsdoc-html-tag-delimiter-face)
-            (js2-set-face (match-beginning 2)
-                          (match-end 2)
-                          'js2-jsdoc-html-tag-name-face)
-            (js2-set-face (match-beginning 3)
-                          (match-end 3)
-                          'js2-jsdoc-html-tag-delimiter-face)))))))
+    (save-excursion
+      (dolist (node comments)
+        (when (eq (js2-comment-node-format node) 'jsdoc)
+          (setq beg (js2-node-abs-pos node)
+                end (+ beg (js2-node-len node)))
+          (save-restriction
+            (narrow-to-region beg end)
+            (dolist (re (list js2-jsdoc-param-tag-regexp
+                              js2-jsdoc-typed-tag-regexp
+                              js2-jsdoc-arg-tag-regexp
+                              js2-jsdoc-link-tag-regexp
+                              js2-jsdoc-see-tag-regexp
+                              js2-jsdoc-empty-tag-regexp))
+              (goto-char beg)
+              (while (re-search-forward re nil t)
+                (js2-jsdoc-highlight-helper)))
+            ;; simple highlighting for html tags
+            (goto-char beg)
+            (while (re-search-forward js2-jsdoc-html-tag-regexp nil t)
+              (js2-set-face (match-beginning 1)
+                            (match-end 1)
+                            'js2-jsdoc-html-tag-delimiter-face)
+              (js2-set-face (match-beginning 2)
+                            (match-end 2)
+                            'js2-jsdoc-html-tag-name-face)
+              (js2-set-face (match-beginning 3)
+                            (match-end 3)
+                            'js2-jsdoc-html-tag-delimiter-face))))))))
 
 (defun js2-highlight-assign-targets (node left right)
   "Highlight function properties and external variables."

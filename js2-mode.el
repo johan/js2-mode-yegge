@@ -158,6 +158,10 @@
                  font-lock-unfontify-region-function))
     (set (make-local-variable var) (lambda (&rest args) t)))
 
+  ;; Don't let font-lock mess up our string/comment highlighting.
+  (set (make-local-variable #'font-lock-syntactic-face-function)
+       (lambda (state) nil))
+
   ;; Experiment:  make reparse-delay longer for longer files.
   (if (plusp js2-dynamic-idle-timer-adjust)
       (setq js2-idle-timer-delay
@@ -255,6 +259,8 @@ buffer will only rebuild its `js2-mode-ast' if the buffer is dirty."
                              (if (and font-lock-keywords
                                       font-lock-mode)
                                  (font-lock-fontify-buffer))
+                             (if (>= js2-highlight-level 1)
+                                 (js2-highlight-jsdoc js2-mode-ast))
                              nil))))
               (if interrupted-p
                   (progn

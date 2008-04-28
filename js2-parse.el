@@ -334,8 +334,6 @@ leaving a statement, an expression, or a function definition."
         (js2-report-error "msg.syntax"))
       (setf (js2-ast-root-errors ast) js2-parsed-errors
             (js2-ast-root-warnings ast) js2-parsed-warnings)
-      (if (>= js2-highlight-level 1)
-          (js2-highlight-jsdoc ast))
       (run-hooks 'js2-parse-finished-hook)
       ast)))
 
