@@ -256,7 +256,9 @@ buffer will only rebuild its `js2-mode-ast' if the buffer is dirty."
                              (js2-mode-fontify-regions)
                              (js2-mode-show-warnings)
                              (js2-mode-show-errors)
-                             (if (and font-lock-keywords
+                             (if (and (boundp 'font-lock-keywords)
+                                      font-lock-keywords
+                                      (boundp 'font-lock-mode)
                                       font-lock-mode)
                                  (font-lock-fontify-buffer))
                              (if (>= js2-highlight-level 1)

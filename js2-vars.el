@@ -1131,7 +1131,9 @@ First match-group is the leading whitespace.")
   (defvar c-syntactic-ws-start nil)
   (defvar c-syntactic-ws-end nil)
   (defvar c-syntactic-eol nil)
-  (defvar running-xemacs nil))
+  (defvar running-xemacs nil)
+  (defvar font-lock-mode nil)
+  (defvar font-lock-keywords nil))
 
 (eval-when-compile
   (if (< emacs-major-version 22)
