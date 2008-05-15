@@ -668,6 +668,10 @@ Actually returns the quote character that begins the string."
 (defsubst js2-match-quote (quote-string)
   (let ((start-quote (js2-mode-inside-string)))
     (cond
+     ;; inside a comment - don't do quote-matching, since we can't
+     ;; reliably figure out if we're in a string inside the comment
+     ((js2-comment-at-point)
+      (insert quote-string))
      ((not start-quote)
       ;; not in string => insert matched quotes
       (insert quote-string)
@@ -1015,6 +1019,11 @@ Some users don't like having warnings/errors reported while they type."
   (interactive)
   (setq js2-mode-show-parse-errors (not js2-mode-show-parse-errors)
         js2-mode-show-strict-warnings (not js2-mode-show-strict-warnings))
+  (if (interactive-p)
+      (message "warnings and errors %s"
+               (if js2-mode-show-parse-errors
+                   "enabled"
+                 "disabled")))
   (js2-reparse 'force))
 
 (defun js2-mode-customize ()

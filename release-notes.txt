@@ -221,3 +221,8 @@ New features:
 Bug fixes:
 
   * Issue #63:  jsdoc highlighting was broken
+  * Issue #71:  bogus "no side effects" warning
+
+Behavior changes:
+
+  * don't do quote-matching inside comments, as it rarely works right

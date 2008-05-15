@@ -1262,7 +1262,7 @@ property is added if the operator follows the operand."
 
 (defun js2-print-let-stmt-node (n i)
   (let ((pad (js2-make-pad i))
-        body (js2-let-stmt-node-body))
+        (body (js2-let-stmt-node-body)))
     (insert pad "let ")
     (if body
         (insert "("))
@@ -2760,72 +2760,73 @@ NAME can be a lisp symbol or string.  SYMBOL is a `js2-symbol'."
 
 (defconst js2-side-effecting-tokens
   (let ((tokens (make-bool-vector js2-num-tokens nil)))
-    (dolist (tt (list js2-EXPR_RESULT
-                      js2-ASSIGN
+    (dolist (tt (list js2-ASSIGN
                       js2-ASSIGN_ADD
-                      js2-ASSIGN_SUB
-                      js2-ASSIGN_MUL
-                      js2-ASSIGN_DIV
-                      js2-ASSIGN_MOD
+                      js2-ASSIGN_BITAND
                       js2-ASSIGN_BITOR
                       js2-ASSIGN_BITXOR
-                      js2-ASSIGN_BITAND
+                      js2-ASSIGN_DIV
                       js2-ASSIGN_LSH
+                      js2-ASSIGN_MOD
+                      js2-ASSIGN_MUL
                       js2-ASSIGN_RSH
+                      js2-ASSIGN_SUB
                       js2-ASSIGN_URSH
-                      js2-ENTERWITH
-                      js2-LEAVEWITH
-                      js2-RETURN
-                      js2-GOTO
-                      js2-IFEQ
-                      js2-IFNE
-                      js2-NEW
-                      js2-DELPROP
-                      js2-SETNAME
-                      js2-SETPROP
-                      js2-SETELEM
-                      js2-CALL
-                      js2-THROW
-                      js2-RETHROW
-                      js2-SETVAR
-                      js2-CATCH_SCOPE
-                      js2-RETURN_RESULT
-                      js2-SET_REF
-                      js2-DEL_REF
-                      js2-REF_CALL
-                      js2-TRY
-                      js2-EMPTY
-                      js2-SEMI
-                      js2-INC
-                      js2-DEC
-                      js2-EXPORT
-                      js2-IMPORT
-                      js2-IF
-                      js2-ELSE
-                      js2-SWITCH
-                      js2-WHILE
-                      js2-DO
-                      js2-FOR
+                      js2-BLOCK
                       js2-BREAK
+                      js2-CALL
+                      js2-CATCH
+                      js2-CATCH_SCOPE
+                      js2-CONST
                       js2-CONTINUE
                       js2-DEBUGGER
-                      js2-VAR
-                      js2-CONST
+                      js2-DEC
+                      js2-DELPROP
+                      js2-DEL_REF
+                      js2-DO
+                      js2-ELSE
+                      js2-EMPTY
+                      js2-ENTERWITH
+                      js2-EXPORT
+                      js2-EXPR_RESULT
+                      js2-FINALLY
+                      js2-FOR
+                      js2-FUNCTION
+                      js2-GOTO
+                      js2-IF
+                      js2-IFEQ
+                      js2-IFNE
+                      js2-IMPORT
+                      js2-INC
+                      js2-JSR
+                      js2-LABEL
+                      js2-LEAVEWITH
                       js2-LET
                       js2-LETEXPR
+                      js2-LOCAL_BLOCK
+                      js2-LOOP
+                      js2-NEW
+                      js2-REF_CALL
+                      js2-RETHROW
+                      js2-RETURN
+                      js2-RETURN_RESULT
+                      js2-SEMI
+                      js2-SETELEM
+                      js2-SETELEM_OP
+                      js2-SETNAME
+                      js2-SETPROP
+                      js2-SETPROP_OP
+                      js2-SETVAR
+                      js2-SET_REF
+                      js2-SET_REF_OP
+                      js2-SWITCH
+                      js2-TARGET
+                      js2-THROW
+                      js2-TRY
+                      js2-VAR
+                      js2-WHILE
                       js2-WITH
                       js2-WITHEXPR
-                      js2-CATCH
-                      js2-FINALLY
-                      js2-BLOCK
-                      js2-LABEL
-                      js2-TARGET
-                      js2-LOOP
-                      js2-JSR
-                      js2-SETPROP_OP
-                      js2-SETELEM_OP
-                      js2-LOCAL_BLOCK
-                      js2-SET_REF_OP
                       js2-YIELD))
       (aset tokens tt t))
     (if js2-instanceof-has-side-effects

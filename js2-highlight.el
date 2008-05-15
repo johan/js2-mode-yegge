@@ -270,14 +270,14 @@ The variable `js2-highlight-level' governs this highighting."
 (defconst js2-jsdoc-arg-tag-regexp
   (concat "^\\s-*\\*+\\s-*\\(@\\(?:"
           (regexp-opt
-           '("author" "base" "extends" "member" "type" "version"))
+           '("base" "extends" "member" "type" "version"))
           "\\)\\)\\s-+\\([^ \t]+\\)")
   "Matches jsdoc tags with a single argument.")
 
 (defconst js2-jsdoc-empty-tag-regexp
   (concat "^\\s-*\\*+\\s-*\\(@\\(?:"
           (regexp-opt
-           '("addon" "class" "constructor" "deprecated" "exec"
+           '("addon" "author" "class" "constructor" "deprecated" "exec"
              "exception" "fileoverview" "final" "ignore" "private"))
           "\\)\\)\\s-*")
   "Matches empty jsdoc tags.")

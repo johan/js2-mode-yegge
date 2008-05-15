@@ -115,7 +115,7 @@ returns nil.  Otherwise returns the string name/value of the node."
 (defsubst js2-node-qname-component (node)
   "Test function:  return the name of this node, if it contributes to a qname.
 Returns nil if the node doesn't contribute."
-  (copy-seq
+  (copy-sequence
    (or (js2-prop-node-name node)
        (if (and (js2-function-node-p node)
                 (js2-function-node-name node))
