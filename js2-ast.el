@@ -1262,7 +1262,7 @@ property is added if the operator follows the operand."
 
 (defun js2-print-let-stmt-node (n i)
   (let ((pad (js2-make-pad i))
-        (body (js2-let-stmt-node-body)))
+        (body (js2-let-stmt-node-body n)))
     (insert pad "let ")
     (if body
         (insert "("))
