@@ -657,15 +657,6 @@ Return value is a list (EXPR LP RP), with absolute paren positions."
 (defsubst js2-parse-warn-missing-semi (beg end)
   (and js2-mode-show-strict-warnings
        js2-strict-missing-semi-warning
-       (not (and js2-missing-semi-one-line-override
-                 (save-excursion
-                   (goto-char beg)
-                   (skip-chars-backward " \t")
-                   (eq (char-before) ?{))
-                 (save-excursion
-                   (goto-char end)
-                   (skip-chars-forward " \t")
-                   (eq (char-after) ?}))))
        (js2-add-strict-warning
         "msg.missing.semi" nil
         ;; back up to beginning of statement or line

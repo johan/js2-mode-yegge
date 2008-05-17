@@ -226,3 +226,8 @@ Bug fixes:
 Behavior changes:
 
   * don't do quote-matching inside comments, as it rarely works right
+
+  * fixed js2-missing-semi-one-line-override to work for arbitrary function bodies.
+    It previously only worked if the function body was a simple statement like "return blah".
+    Now the warning is suppressed for any function body whose open and close curlies
+    are on the same line.

@@ -361,7 +361,19 @@ buffer will only rebuild its `js2-mode-ast' if the buffer is dirty."
              (and (not js2-strict-trailing-comma-warning)
                   (string-match "trailing\\.comma" key))
              (and (not js2-strict-cond-assign-warning)
-                  (string= key "msg.equal.as.assign")))
+                  (string= key "msg.equal.as.assign"))
+             (and js2-missing-semi-one-line-override
+                  (let* ((beg (second e))
+                         (node (js2-node-at-point beg))
+                         (fn (js2-mode-find-enclosing-fn node))
+                         (body (js2-function-node-body fn))
+                         (lc (and body (js2-node-abs-pos body)))
+                         (rc (and lc (+ lc (js2-node-len body)))))
+                    (save-excursion
+                      (goto-char beg)
+                      (or (null body)
+                          (and (js2-same-line lc)
+                               (js2-same-line rc)))))))
           (js2-mode-show-warn-or-err e 'js2-warning-face))))))
 
 (defun js2-echo-error (old-point new-point)
