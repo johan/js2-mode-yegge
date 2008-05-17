@@ -222,6 +222,7 @@ Bug fixes:
 
   * Issue #63:  jsdoc highlighting was broken
   * Issue #71:  bogus "no side effects" warning
+  * fixed unreported bug where js2-next-error still stopped at suppressed warnings 
 
 Behavior changes:
 

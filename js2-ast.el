@@ -2516,7 +2516,16 @@ Function returns nil if POS was not in any comment node."
                  (<= x end))
             (throw 'done comment))))))
 
+(defun js2-mode-find-parent-fn (node)
+  "Find function enclosing NODE.
+Returns nil if NODE is not inside a function."
+  (setq node (js2-node-parent node))
+  (while (and node (not (js2-function-node-p node)))
+    (setq node (js2-node-parent node)))
+  (and (js2-function-node-p node) node))
+
 (defun js2-mode-find-enclosing-fn (node)
+  "Find function or root enclosing NODE."
   (if (js2-ast-root-p node)
       node
     (setq node (js2-node-parent node))

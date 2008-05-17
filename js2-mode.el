@@ -254,6 +254,7 @@ buffer will only rebuild its `js2-mode-ast' if the buffer is dirty."
                            (catch 'interrupted
                              (setq js2-mode-ast (js2-parse))
                              (js2-mode-fontify-regions)
+                             (js2-mode-remove-suppressed-warnings)
                              (js2-mode-show-warnings)
                              (js2-mode-show-errors)
                              (if (and (boundp 'font-lock-keywords)
@@ -350,31 +351,39 @@ buffer will only rebuild its `js2-mode-ast' if the buffer is dirty."
     (dolist (e (js2-ast-root-errors js2-mode-ast))
       (js2-mode-show-warn-or-err e 'js2-error-face))))
 
+(defun js2-mode-remove-suppressed-warnings ()
+  "Take suppressed warnings out of the AST warnings list.
+This ensures that the counts and `next-error' are correct."
+  (setf (js2-ast-root-warnings js2-mode-ast)
+        (js2-delete-if
+         (lambda (e)
+           (let ((key (caar e)))
+             (or
+              (and (not js2-strict-trailing-comma-warning)
+                   (string-match "trailing\\.comma" key))
+              (and (not js2-strict-cond-assign-warning)
+                   (string= key "msg.equal.as.assign"))
+              (and js2-missing-semi-one-line-override
+                   (string= key "msg.missing.semi")
+                   (let* ((beg (second e))
+                          (node (js2-node-at-point beg))
+                          (fn (js2-mode-find-parent-fn node))
+                          (body (and fn (js2-function-node-body fn)))
+                          (lc (and body (js2-node-abs-pos body)))
+                          (rc (and lc (+ lc (js2-node-len body)))))
+                     (and fn
+                          (or (null body)
+                              (save-excursion
+                                (goto-char beg)
+                                (and (js2-same-line lc)
+                                     (js2-same-line rc))))))))))
+         (js2-ast-root-warnings js2-mode-ast))))
+
 (defun js2-mode-show-warnings ()
   "Highlight strict-mode warnings."
   (when js2-mode-show-strict-warnings
     (dolist (e (js2-ast-root-warnings js2-mode-ast))
-      (let ((key (car e)))
-        (unless
-            ;; allow individual overrides
-            (or
-             (and (not js2-strict-trailing-comma-warning)
-                  (string-match "trailing\\.comma" key))
-             (and (not js2-strict-cond-assign-warning)
-                  (string= key "msg.equal.as.assign"))
-             (and js2-missing-semi-one-line-override
-                  (let* ((beg (second e))
-                         (node (js2-node-at-point beg))
-                         (fn (js2-mode-find-enclosing-fn node))
-                         (body (js2-function-node-body fn))
-                         (lc (and body (js2-node-abs-pos body)))
-                         (rc (and lc (+ lc (js2-node-len body)))))
-                    (save-excursion
-                      (goto-char beg)
-                      (or (null body)
-                          (and (js2-same-line lc)
-                               (js2-same-line rc)))))))
-          (js2-mode-show-warn-or-err e 'js2-warning-face))))))
+      (js2-mode-show-warn-or-err e 'js2-warning-face))))
 
 (defun js2-echo-error (old-point new-point)
   (let ((msg (get-text-property new-point 'help-echo)))
