@@ -457,8 +457,19 @@ This ensures that the counts and `next-error' are correct."
     ;; if we've got a parse error here, assume it's an unterminated
     ;; comment.
     (setq needs-close
-          (eq (get-text-property (point) 'point-entered)
-              'js2-echo-error))
+          (or
+           (eq (get-text-property (1- (point)) 'point-entered)
+               'js2-echo-error)
+           ;; The heuristic above doesn't work well when we're
+           ;; creating a comment and there's another one downstream,
+           ;; as our parser thinks this one ends at the end of the
+           ;; next one.  (You can have a /* inside a js block comment.)
+           ;; So just close it if the next non-ws char isn't a *.
+           (and first-line
+                (eolp)
+                (save-excursion
+                  (skip-syntax-forward " ")
+                  (not (eq (char-after) ?*))))))
     (insert "\n")
     (cond
      (star

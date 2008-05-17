@@ -232,3 +232,5 @@ Behavior changes:
     It previously only worked if the function body was a simple statement like "return blah".
     Now the warning is suppressed for any function body whose open and close curlies
     are on the same line.
+
+  * improved heuristic for closing jsdoc comments w/ Enter key
