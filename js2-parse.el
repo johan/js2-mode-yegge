@@ -887,8 +887,11 @@ Parses for, for-in, and for each-in statements."
     ;; See if this is a for each () instead of just a for ()
     (when (js2-match-token js2-NAME)
       (if (string= "each" js2-ts-string)
-          (setq is-for-each t
-                each-pos (- js2-token-beg for-pos)) ; relative
+          (progn
+            (setq is-for-each t
+                  each-pos (- js2-token-beg for-pos)) ; relative
+            (js2-set-face js2-token-beg js2-token-end
+                          'font-lock-keyword-face 'record))
         (js2-report-error "msg.no.paren.for")))
 
     (if (js2-must-match js2-LP "msg.no.paren.for")
