@@ -624,9 +624,6 @@ parser as a frontend to an interpreter or byte compiler.")
 (defconst js2-ti-check-label (lsh 1 17)
   "Flag:  indicates to check for label.")
 
-(defconst js2-ti-after-comment (lsh 1 18)
-  "Flag:  indicates token followed a comment.")
-
 ;; Inline Rhino's CompilerEnvirons vars as buffer-locals.
 
 (defvar js2-compiler-generate-debug-info t)

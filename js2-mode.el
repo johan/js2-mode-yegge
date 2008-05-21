@@ -81,6 +81,7 @@
 
 ;; TODO:
 ;;  - set a text prop on autoinserted delimiters and don't biff user-entered ones
+;;  - when inserting magic curlies, look for matching close-curly before inserting
 ;;  - clean up xml member-expr parsing
 ;;  - add in remaining Ecma strict-mode warnings
 ;;  - get more use out of the symbol table:

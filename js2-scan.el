@@ -202,8 +202,8 @@ Returns nil and consumes nothing if TEST is not the next character."
   (let (c)
     (while (and (/= js2-EOF_CHAR (setq c (js2-get-char)))
                 (/= c ?\n)))
-    (setq js2-token-end js2-ts-cursor)
-    (js2-unget-char)))
+    (js2-unget-char)
+    (setq js2-token-end js2-ts-cursor)))
 
 (defun js2-init-scanner (&optional buf line)
   "Create token stream for BUF starting on LINE.
@@ -420,8 +420,7 @@ corresponding number.  Otherwise return -1."
             (setq continue nil))))
 
         ;; Assume the token will be 1 char - fixed up below.
-        (setq js2-token-beg (1- js2-ts-cursor)
-              js2-token-end js2-ts-cursor)
+        (js2-ts-set-char-token-bounds)
 
         (when (eq c ?@)
           (throw 'return js2-XMLATTR))
@@ -761,8 +760,7 @@ corresponding number.  Otherwise return -1."
            (when (js2-match-char ?/)
              (setq js2-token-beg (- js2-ts-cursor 2))
              (js2-skip-line)
-             (setq js2-ts-comment-type 'line
-                   js2-token-end js2-ts-cursor)
+             (setq js2-ts-comment-type 'line)
              (throw 'return js2-COMMENT))
 
            ;; is it a /* comment?

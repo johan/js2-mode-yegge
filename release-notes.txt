@@ -235,3 +235,8 @@ Behavior changes:
     are on the same line.
 
   * improved heuristic for closing jsdoc comments w/ Enter key
+
+API changes:
+
+  * fixed various problems with computing node bound
+  * fixed problem where //-comments were added twice each to the AST

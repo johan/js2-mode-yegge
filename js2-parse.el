@@ -121,7 +121,6 @@ The flags, if any, are saved in `js2-current-flagged-token'."
   (if (/= js2-current-flagged-token js2-EOF) ; last token not consumed
       js2-current-token  ; most common case - return already-peeked token
     (let ((tt (js2-get-token))          ; call scanner
-          saw-comment
           saw-eol
           flags
           face)
@@ -132,20 +131,15 @@ The flags, if any, are saved in `js2-current-flagged-token'."
             (setq saw-eol t)
           ;; this is sticky - subsequent whitespace doesn't affect
           ;; the fact that we saw a comment.
-          (setq saw-comment t
-                saw-eol nil)
+          (setq saw-eol nil)
           (if js2-record-comments
               (js2-record-comment)))
         (setq tt (js2-get-token)))      ; call scanner
 
       (setq js2-current-token tt
-            js2-current-flagged-token (set-flag tt
-                                                (logior (if saw-eol
-                                                            js2-ti-after-eol
-                                                          0)
-                                                        (if saw-comment
-                                                            js2-ti-after-comment
-                                                          0))))
+            js2-current-flagged-token (if saw-eol
+                                          (set-flag tt js2-ti-after-eol)
+                                        tt))
       ;; perform lexical fontification as soon as token is scanned
       (when js2-parse-ide-mode
         (cond
