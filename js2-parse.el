@@ -129,8 +129,6 @@ The flags, if any, are saved in `js2-current-flagged-token'."
                  (eq tt js2-COMMENT))
         (if (eq tt js2-EOL)
             (setq saw-eol t)
-          ;; this is sticky - subsequent whitespace doesn't affect
-          ;; the fact that we saw a comment.
           (setq saw-eol nil)
           (if js2-record-comments
               (js2-record-comment)))
