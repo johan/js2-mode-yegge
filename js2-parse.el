@@ -312,13 +312,13 @@ leaving a statement, an expression, or a function definition."
         (case-fold-search nil)
         ast)
     (or buf (setq buf (current-buffer)))
-    (setq js2-scanned-comments nil
-          js2-parsed-errors nil
-          js2-parsed-warnings nil
-          js2-imenu-recorder nil
-          js2-imenu-function-map nil)
     (save-excursion
       (set-buffer buf)
+      (setq js2-scanned-comments nil
+            js2-parsed-errors nil
+            js2-parsed-warnings nil
+            js2-imenu-recorder nil
+            js2-imenu-function-map nil)
       (js2-init-scanner)
       (setq ast (js2-with-unmodifying-text-property-changes
                   (js2-do-parse)))

@@ -220,6 +220,9 @@ New features:
 
 Bug fixes:
 
+  * fixed unreported bug where accumulator variables weren't being reset
+    causing unlimited expansion in memory usage (and gradual slowdown) while editing
+
   * Issue #63:  jsdoc highlighting was broken
   * Issue #71:  bogus "no side effects" warning
   * fixed unreported bug where js2-next-error still stopped at suppressed warnings 
