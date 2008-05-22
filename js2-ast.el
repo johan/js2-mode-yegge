@@ -2844,28 +2844,31 @@ NAME can be a lisp symbol or string.  SYMBOL is a `js2-symbol'."
 
 (defun js2-node-has-side-effects (node)
   "Return t if NODE has side effects."
-  (let ((tt (js2-node-type node))
-        expr)
-    (cond
-     ;; This doubtless needs some work, since EXPR_VOID is used
-     ;; in several ways in Rhino, and I may not have caught them all.
-     ;; I'll wait for people to notice incorrect warnings.
-     ((and (= tt js2-EXPR_VOID)
-           (js2-expr-stmt-node-p node))  ; but not if EXPR_RESULT
-      (if (setq expr (js2-expr-stmt-node-expr node))
-          (js2-node-has-side-effects expr)
-        t))
-     ((= tt js2-COMMA)
-      (if (setq expr (js2-infix-node-right node))
-          (js2-node-has-side-effects expr)
-        t))
-     ((= tt js2-HOOK)
-      (and (js2-node-has-side-effects (js2-cond-node-true-expr node))
-           (js2-node-has-side-effects (js2-cond-node-false-expr node))))
-     ((= tt js2-ERROR) ; avoid cascaded error messages
-      nil)
-     (t
-      (aref js2-side-effecting-tokens tt)))))
+  (when node  ; makes it easier to handle malformed expressions
+    (let ((tt (js2-node-type node)))
+      (cond
+       ;; This doubtless needs some work, since EXPR_VOID is used
+       ;; in several ways in Rhino, and I may not have caught them all.
+       ;; I'll wait for people to notice incorrect warnings.
+       ((and (= tt js2-EXPR_VOID)
+             (js2-expr-stmt-node-p node)) ; but not if EXPR_RESULT
+        (js2-node-has-side-effects (js2-expr-stmt-node-expr node)))
+
+       ((= tt js2-COMMA)
+        (js2-node-has-side-effects (js2-infix-node-right node)))
+
+       ((or (= tt js2-AND)
+            (= tt js2-OR))
+        (or (js2-node-has-side-effects (js2-infix-node-right node))
+            (js2-node-has-side-effects (js2-infix-node-left node))))
+
+       ((= tt js2-HOOK)
+        (and (js2-node-has-side-effects (js2-cond-node-true-expr node))
+             (js2-node-has-side-effects (js2-cond-node-false-expr node))))
+       ((= tt js2-ERROR) ; avoid cascaded error messages
+        nil)
+       (t
+        (aref js2-side-effecting-tokens tt))))))
 
 (defun js2-expr-at-point (node-or-position)
   "Returns the outermost parent expression containing NODE-OR-POSITION.
