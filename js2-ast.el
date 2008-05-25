@@ -734,6 +734,17 @@ Multiple labels for a statement are collapsed into the labels field."
 (put 'cl-struct-js2-labeled-stmt-node 'js2-visitor 'js2-visit-labeled-stmt)
 (put 'cl-struct-js2-labeled-stmt-node 'js2-printer 'js2-print-labeled-stmt)
 
+(defun js2-get-label-by-name (lbl-stmt name)
+  "Return a `js2-label-node' by NAME from LBL-STMT's labels list.
+Returns nil if no such label is in the list."
+  (let ((label-list (js2-labeled-stmt-node-labels lbl-stmt))
+        result)
+    (while (and label-list (not result))
+      (if (string= (js2-label-node-label (car label-list)) name)
+          (setq result (car label-list))
+        (setq label-list (cdr label-list))))
+    result))
+
 (defun js2-visit-labeled-stmt (n v)
   (dolist (label (js2-labeled-stmt-node-labels n))
     (js2-visit-ast label v))

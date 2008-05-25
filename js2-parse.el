@@ -1105,7 +1105,8 @@ Side effect:  sets token information for the label identifier."
     (unless (setq break-target (js2-match-jump-label-name))
       ;; no break target specified - try for innermost enclosing loop/switch
       (if (null js2-loop-and-switch-set)
-          (js2-report-error "msg.bad.break" nil pos (length "break"))
+          (unless break-label
+            (js2-report-error "msg.bad.break" nil pos (length "break")))
         (setq break-target (first js2-loop-and-switch-set))))
     (setq break-node (make-js2-break-node :pos pos
                                           :len (- end pos)
@@ -1358,6 +1359,7 @@ This strategy came from Rhino, presumably via SpiderMonkey."
   (let ((pos js2-token-beg)
         (end js2-token-end)
         (name js2-ts-string)
+        dup-label
         stmt
         pn)
     (js2-set-check-for-label)
@@ -1372,10 +1374,17 @@ This strategy came from Rhino, presumably via SpiderMonkey."
                                                     js2-EXPR_RESULT)
                                             :expr pn))
           (js2-node-add-children pn (js2-expr-stmt-node-expr pn)))
-      ;; Else parsed a label.  First add to buffer-local label set.
+
+      ;; Else parsed a label.
       (js2-consume-token)
-      (if (assoc name js2-label-set)
-          (js2-report-error "msg.dup.label"))
+      (when (setq dup-label (cdr (assoc name js2-label-set)))
+        (setq dup-label (js2-get-label-by-name dup-label name))
+        (js2-report-error "msg.dup.label" nil
+                          (js2-node-abs-pos dup-label)
+                          (js2-node-len dup-label))
+        (js2-report-error "msg.dup.label" nil pos (js2-node-len pn)))
+
+      ;; Add to buffer-local label set.
       (if (null js2-statement-label)
           (setq js2-statement-label
                 (make-js2-labeled-stmt-node :labels (list pn)
@@ -1461,7 +1470,7 @@ the node position coincides with the first var-init child."
         (setq name (make-js2-name-node)
               nbeg js2-token-beg
               nend js2-token-end)
-        (js2-define-symbol decl-type js2-ts-string name))
+        (js2-define-symbol decl-type js2-ts-string name js2-in-for-init))
       (setq end js2-token-end)
 
       (when (js2-match-token js2-ASSIGN)
@@ -1562,7 +1571,7 @@ the node position coincides with the first var-init child."
                         name
                         (make-js2-symbol decl-type name node)))
 
-(defun js2-define-symbol (decl-type name &optional node)
+(defun js2-define-symbol (decl-type name &optional node ignore-in-block)
   "Define a symbol in the current scope.
 If NODE is non-nil, it is the AST node associated with the symbol."
   (let* ((defining-scope (js2-get-defining-scope js2-current-scope name))
@@ -1588,7 +1597,12 @@ If NODE is non-nil, it is the AST node associated with the symbol."
        name))
 
      ((eq decl-type js2-LET)
-      (js2-define-new-symbol decl-type name node))
+      (if (and (not ignore-in-block)
+               (let ((node (js2-scope-ast-node js2-current-scope)))
+                 (or (eq (js2-node-type node) js2-IF)
+                     (js2-loop-node-p node))))
+          (js2-report-error "msg.let.decl.not.in.block")
+        (js2-define-new-symbol decl-type name node)))
 
      ((or (eq decl-type js2-VAR)
           (eq decl-type js2-CONST)

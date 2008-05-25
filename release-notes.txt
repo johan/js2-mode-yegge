@@ -212,7 +212,7 @@ Behavior changes:
 
   * changed close-curly to use the magic-close-paren function, so that typing C-u {} does the right thing.
 
-=Release notes for xxx, js2-2008xxxx.el:=
+=Release notes for May 21, 2008, js2-20080521.el:=
 
 New features:
 
@@ -244,3 +244,23 @@ API changes:
 
   * fixed various problems with computing node bound
   * fixed problem where //-comments were added twice each to the AST
+
+=Release notes for mmm dd, yyyy, js2-yyyymmdd.el:=
+
+New features:
+
+  * better highlighting for duplicate labels (both are now flagged)
+
+  * new syntax error:  let declaration not directly in block.
+    In JavaScript 1.7, a let-variable declaration must be a top-level statement
+    in a script or block.  The block can be a function body, loop body or any
+    other curly-brace-delimited hunk of code.  Otherwise it's a syntax error.
+    For instance:  =while (y) let x = 10;= is a syntax error, because the let
+    declaration is not the child of a block (it's the child of a while-node).
+
+Behavior changes:
+
+  * don't give "break outside loop/switch" error when break specifies
+   a nonexistent label - just flag an error on the break label
+
+  * better error reporting for bad regexp flags (just highlights bad flag)

@@ -233,6 +233,9 @@ the correct number of ARGS must be provided."
 (js2-msg "msg.fn.redecl"
          "TypeError: redeclaration of function %s.")
 
+(js2-msg "msg.let.decl.not.in.block"
+         "SyntaxError: let declaration not directly within block")
+
 ;; NodeTransformer
 (js2-msg "msg.dup.label"
          "duplicated label")

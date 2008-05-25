@@ -82,10 +82,11 @@ Signals an error if it's not a recognized token."
   (or (gethash sym js2-token-codes)
       (error "Invalid token symbol: %s " sym)))  ; signal code bug
 
-(defsubst js2-report-scan-error (msg &optional no-throw)
+(defsubst js2-report-scan-error (msg &optional no-throw beg len)
   (setq js2-token-end js2-ts-cursor)
-  (js2-report-error msg nil js2-token-beg
-                    (- js2-token-end js2-token-beg))
+  (js2-report-error msg nil
+                    (or beg js2-token-beg)
+                    (or len (- js2-token-end js2-token-beg)))
   (unless no-throw
     (throw 'return js2-ERROR)))
 
@@ -838,7 +839,8 @@ corresponding number.  Otherwise return -1."
   "Called by parser when it gets / or /= in literal context."
   (let (c
         err
-        in-class
+        in-class  ; inside a '[' .. ']' character-class
+        flags
         (continue t))
     (setq js2-token-beg js2-ts-cursor
           js2-ts-string-buffer nil
@@ -850,52 +852,44 @@ corresponding number.  Otherwise return -1."
       (if (neq start-token js2-DIV)
           (error "failed assertion")))
 
-    (while (and continue
-                (not err))
-      (setq c (js2-get-char))
+    (while (and (not err)
+                (or (/= (setq c (js2-get-char)) ?/)
+                    in-class))
       (cond
-       ((or (eq c ?\n)
-            (eq c js2-EOF_CHAR))
+       ((or (= c ?\n)
+            (= c js2-EOF_CHAR))
         (setq js2-token-end (1- js2-ts-cursor)
               err t
               js2-ts-string (js2-collect-string js2-ts-string-buffer))
         (js2-report-error "msg.unterminated.re.lit"))
-
-       ((= c ?\[)
-        (setq in-class t)
-        (js2-add-to-string c))
-
-       ((= c ?\])
-        (setq in-class nil)
-        (js2-add-to-string c))
-
-       ((= c ?\\)
-        (js2-add-to-string c)
-        (setq c (js2-get-char)))
-
-       ((= c ?/)
-        (if in-class
+       (t (cond
+           ((= c ?\\)
             (js2-add-to-string c)
-          (setq continue nil)))
-       (t
-        (js2-add-to-string c))))
+            (setq c (js2-get-char)))
+
+           ((= c ?\[)
+            (setq in-class t))
+
+           ((= c ?\])
+            (setq in-class nil)))
+          (js2-add-to-string c))))
 
     (unless err
-      (setq continue t)
       (while continue
         (cond
          ((js2-match-char ?g)
-          (push ?g js2-ts-regexp-flags))
+          (push ?g flags))
          ((js2-match-char ?i)
-          (push ?i js2-ts-regexp-flags))
+          (push ?i flags))
          ((js2-match-char ?m)
-          (push ?m js2-ts-regexp-flags))
+          (push ?m flags))
          (t
           (setq continue nil))))
       (if (js2-alpha-p (js2-peek-char))
-          (js2-report-scan-error "msg.invalid.re.flag" t))
+          (js2-report-scan-error "msg.invalid.re.flag" t
+                                 js2-ts-cursor 1))
       (setq js2-ts-string (js2-collect-string js2-ts-string-buffer)
-            js2-ts-regexp-flags (js2-collect-string js2-ts-regexp-flags)
+            js2-ts-regexp-flags (js2-collect-string flags)
             js2-token-end js2-ts-cursor)
       ;; tell `parse-partial-sexp' to ignore this range of chars
       (put-text-property js2-token-beg js2-token-end 'syntax-class '(2)))))
