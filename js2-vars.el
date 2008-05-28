@@ -741,8 +741,8 @@ parser as a frontend to an interpreter or byte compiler.")
 ;; statementHelper() function, the main statement parser, which
 ;; is then used by quite a few of the sub-parsers.  We just make
 ;; it a buffer-local variable and make sure it's cleaned up properly.
-(defvar js2-statement-label nil)  ; type `js2-labeled-stmt-node'
-(make-variable-buffer-local 'js2-statement-label)
+(defvar js2-labeled-stmt nil)  ; type `js2-labeled-stmt-node'
+(make-variable-buffer-local 'js2-labeled-stmt)
 
 ;; Similarly, Rhino passes an inForInit boolean through about half
 ;; the expression parsers.  We use a dynamically-scoped variable,

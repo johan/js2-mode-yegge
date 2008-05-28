@@ -349,7 +349,7 @@ Scanner should be initialized."
                                              :ast-node root))
           js2-current-flagged-token js2-EOF
           js2-nesting-of-function 0
-          js2-statement-label nil
+          js2-labeled-stmt nil
           js2-recorded-assignments nil)
     (catch 'break
       (while t
@@ -602,7 +602,7 @@ Return value is a list (EXPR LP RP), with absolute paren positions."
     (list pn lp rp)))
 
 (defun js2-parse-statement ()
-  (let ((js2-statement-label nil)
+  (let ((js2-labeled-stmt nil)
         tt pn beg end)
     (when js2-parse-interruptable-p
       (if (zerop (% (incf js2-parse-stmt-count)
@@ -818,7 +818,6 @@ Return value is a list (EXPR LP RP), with absolute paren positions."
                 body (js2-parse-statement)
                 (js2-while-node-body pn) body
                 (js2-node-len pn) (- (js2-node-end body) pos)
-                (js2-while-node-label pn) js2-statement-label
                 (js2-while-node-lp pn) (js2-relpos (second cond) pos)
                 (js2-while-node-rp pn) (js2-relpos (third cond) pos))
           (js2-node-add-children pn body (car cond)))
@@ -843,7 +842,6 @@ Return value is a list (EXPR LP RP), with absolute paren positions."
                 (js2-do-node-condition pn) (car cond)
                 (js2-do-node-body pn) body
                 end js2-ts-cursor
-                (js2-do-node-label pn) js2-statement-label
                 (js2-do-node-lp pn) (js2-relpos (second cond) pos)
                 (js2-do-node-rp pn) (js2-relpos (third cond) pos))
           (js2-node-add-children pn (car cond) body))
@@ -957,7 +955,6 @@ Parses for, for-in, and for each-in statements."
           ;; so that the loop node appears in the js2-loop-set, allowing
           ;; break/continue statements to find the enclosing loop.
           (setf body (js2-parse-statement)
-                (js2-loop-node-label pn) js2-statement-label
                 (js2-loop-node-body pn) body
                 (js2-node-pos pn) for-pos
                 end (js2-node-end body)
@@ -1351,9 +1348,6 @@ If the name is not followed by a colon, we return the name as a
 If it's followed by a colon, we parse the statement following the
 colon and return the whole thing as a `js2-labeled-stmt-node'.
 This node is used to accumulate any consecutive labels we find.
-We store this node in buffer-local var `js2-statement-label' so
-that if the non-label statement following the label(s) is a loop,
-the loop can be told its own label for break/continue statements.
 
 This strategy came from Rhino, presumably via SpiderMonkey."
   (let ((pos js2-token-beg)
@@ -1389,11 +1383,11 @@ This strategy came from Rhino, presumably via SpiderMonkey."
           (setq js2-statement-label
                 (make-js2-labeled-stmt-node :labels (list pn)
                                             :pos (js2-node-pos pn)))
-        (js2-labeled-stmt-node-add-label js2-statement-label pn))
-      (js2-node-add-children js2-statement-label pn)
+        (js2-labeled-stmt-node-add-label js2-labeled-stmt pn))
+      (js2-node-add-children js2-labeled-stmt pn)
 
       ;; Add one reference to the bundle per label in `js2-label-set'
-      (push (cons name js2-statement-label) js2-label-set)
+      (push (cons name js2-labeled-stmt) js2-label-set)
 
       ;; Parse the following statement, then remove label from label set.
       (unwind-protect
@@ -1401,19 +1395,19 @@ This strategy came from Rhino, presumably via SpiderMonkey."
         (setq js2-label-set (js2-delete-if (lambda (entry)
                                              (string= (car entry) name))
                                            js2-label-set)))
-      ;; At this point we've got at least one label in `js2-statement-label'
+      ;; At this point we've got at least one label in `js2-labeled-stmt'
       ;; and we've parsed stmt, a statement.  stmt may be a labeled statement
       ;; node, in which case we just pass it up tail-recursively.  Otherwise
       ;; we save it in the accumulator labled-stmt node and return that.
       (if (js2-labeled-stmt-node-p stmt)
           (setq pn stmt)  ; return tail-recursively
-        (setf (js2-labeled-stmt-node-stmt js2-statement-label) stmt
+        (setf (js2-labeled-stmt-node-stmt js2-labeled-stmt) stmt
               ;; set entire length now that stmt is parsed
-              (js2-node-len js2-statement-label)
+              (js2-node-len js2-labeled-stmt)
               (- (js2-node-end stmt)
-                 (js2-node-pos js2-statement-label)))
-        (js2-node-add-children js2-statement-label stmt)
-        (setq pn js2-statement-label)))      ; return `js2-labeled-stmt-node'
+                 (js2-node-pos js2-labeled-stmt)))
+        (js2-node-add-children js2-labeled-stmt stmt)
+        (setq pn js2-labeled-stmt)))      ; return `js2-labeled-stmt-node'
     pn))
 
 (defun js2-parse-expr-stmt ()

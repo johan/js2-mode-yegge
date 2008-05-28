@@ -256,7 +256,6 @@ If any given node in NODES is nil, doesn't record that link."
             (:include js2-stmt-node)
             (:constructor nil))
   "Abstract supertype of loop nodes."
-  label     ; optional `js2-labeled-stmt-node'
   body      ; a `js2-block-node'
   scope     ; a `js2-scope'
   lp        ; position of left-paren, nil if omitted
@@ -268,7 +267,6 @@ If any given node in NODES is nil, doesn't record that link."
             (:constructor make-js2-do-node (&key (type js2-DO)
                                                  (pos js2-token-beg)
                                                  len
-                                                 label
                                                  body
                                                  condition
                                                  while-pos
@@ -300,7 +298,6 @@ If any given node in NODES is nil, doesn't record that link."
             (:constructor make-js2-while-node (&key (type js2-WHILE)
                                                     (pos js2-token-beg)
                                                     len
-                                                    label
                                                     body
                                                     condition
                                                     lp
@@ -329,7 +326,6 @@ If any given node in NODES is nil, doesn't record that link."
             (:constructor make-js2-for-node (&key (type js2-FOR)
                                                   (pos js2-ts-cursor)
                                                   len
-                                                  label
                                                   body
                                                   init
                                                   condition
@@ -368,7 +364,6 @@ If any given node in NODES is nil, doesn't record that link."
             (:constructor make-js2-for-in-node (&key (type js2-FOR)
                                                      (pos js2-ts-cursor)
                                                      len
-                                                     label
                                                      body
                                                      iterator
                                                      object

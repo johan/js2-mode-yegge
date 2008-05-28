@@ -215,7 +215,8 @@ returns nil."
                    (not (looking-at "[{([]"))
                    (progn
                      (forward-char) 
-                     (backward-sexp)
+                     ;; scan-sexps sometimes throws an error
+                     (ignore-errors (backward-sexp))
                      (when (looking-at "(") (backward-word 1))
                      (and (save-excursion
                             (skip-chars-backward " \t}" (point-at-bol))
