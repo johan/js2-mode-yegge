@@ -258,9 +258,14 @@ New features:
     For instance:  =while (y) let x = 10;= is a syntax error, because the let
     declaration is not the child of a block (it's the child of a while-node).
 
+Bug fixes:
+
+  * squelched an error sometimes thrown when trying to indent
+
 Behavior changes:
 
   * don't give "break outside loop/switch" error when break specifies
    a nonexistent label - just flag an error on the break label
 
   * better error reporting for bad regexp flags (just highlights bad flag)
+
