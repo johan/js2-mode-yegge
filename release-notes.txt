@@ -251,16 +251,21 @@ New features:
 
   * better highlighting for duplicate labels (both are now flagged)
 
-  * new syntax error:  let declaration not directly in block.
-    In JavaScript 1.7, a let-variable declaration must be a top-level statement
-    in a script or block.  The block can be a function body, loop body or any
-    other curly-brace-delimited hunk of code.  Otherwise it's a syntax error.
-    For instance:  =while (y) let x = 10;= is a syntax error, because the let
-    declaration is not the child of a block (it's the child of a while-node).
+  * new syntax error:  let declaration not directly in block. In JavaScript 1.7, a let-variable declaration must be a top-level statement in a script or block.  The block can be a function body, loop body or any other curly-brace-delimited hunk of code.  Otherwise it's a syntax error. For instance:  =while (y) let x = 10;= is a syntax error, because the let declaration is not the child of a block (it's the child of a while-node).
+
+  * added support for experimental Rhino syntax controlled by the CompilerEnvirons flag `allowMemberExprAsFunctionName`, which lets you write things like `function foo.bar.baz(a, b) {...}` as mild syntactic sugar for `foo.bar.baz = function(a, b) {...}`
+	
+  * added new strict-mode inconsistent-return warning for functions that return values for some code paths but not others.  This isn't perfect, although it's as good as what Rhino produces today.  The warning can be disabled with the `js2-strict-inconsistent-return-warning` customization variable.
 
 Bug fixes:
 
+  * major bug fix in the way labels were handled.  "continue labelname" is no longer automatically flagged as an error.
   * squelched an error sometimes thrown when trying to indent
+  * fixed unreported bug where buffer was always parsed twice if no functions were defined (ouch)
+  * fixed "Variable binding depth exceeds max-specpdl-size" error in next-error when only 1 error/warning
+  * fixed parsing destructuring params in function args, e.g. `function foo([a, b]) { return a+b }`
+  * fixed highlighting of error reported when mixing yields and value returns
+  * fixed spurious "code has no side effects" warning for code whose side effect was parenthesized
 
 Behavior changes:
 
@@ -269,3 +274,34 @@ Behavior changes:
 
   * better error reporting for bad regexp flags (just highlights bad flag)
 
+  * give instructions for suppressing "mistyped == as =" warning in the warning itself
+
+  * many minor fixes for computing node bounds under error conditions
+
+API changes:
+
+Many modifications to the AST structure to bring it in sync with upcoming changes to Rhino:
+
+  * got rid of js2-stmt-node and js2-expr-node, simplifying code sharing for nodes that could appear in either a statement or an expression context
+  * merged js2-let-expr-node and js2-let-stmt-node into js2-let-node
+  * made js2-scope part of the js2-node hierarchy ("is-a" rather than "has-a")
+  * got rid of js2-function-arg-node (just use a js2-name-node instead)
+  * got rid of the unused js2-in-node
+  * renamed js2-literal-node to js2-keyword-node
+  * got rid of js2-debugger-node (use js2-keyword-node instead)
+  * made js2-prop-get-node inherit from js2-infix-node
+  * reparented various other node types to make them more Rhino-like
+  * got rid of obsolete js2-empty-stmt-node
+  * got rid of js2-destructuring-init-node (use js2-var-init-node instead)
+  * added js2-xml-prop-ref-node and js2-xml-elem-ref-node
+
+  * removed functions js2-node-scope, js2-node-set-scope, js2-expr-at-point
+
+Many updates to the parser to generate the new AST structure.
+
+  * greatly simplified js2-do-parse and js2-parse-function (both were complex)
+  * updated js2-mode, js2-highlight, js2-browse, etc. to use new node types
+  * overhauled label-parsing to be non-recursive and much simpler
+  * complete simplifying/organizing overhaul of xml expression parsing
+
+Some very minor tweaks, all invisible to js2-mode users, to prepare for porting Rhino's code generator.

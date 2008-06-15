@@ -446,7 +446,8 @@ the correct number of ARGS must be provided."
          "Trailing comma yields different behavior across browsers")
 
 (js2-msg "msg.equal.as.assign"
-         "Test for equality (==) mistyped as assignment (=)?")
+         (concat "Test for equality (==) mistyped as assignment (=)?"
+                 " (parenthesize to suppress warning)"))
 
 (js2-msg "msg.var.hides.arg"
          "Variable %s hides argument")

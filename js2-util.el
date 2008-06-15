@@ -201,10 +201,18 @@ Returns nil if element is not found in the list."
      '(error parse-error js2-parse-error))
 (put 'js2-parse-error 'error-message "Parse error")
 
-(defalias 'set-flag 'logior)
+(defmacro js2-clear-flag (flags flag)
+  `(setq ,flags (logand ,flags (lognot ,flag))))
 
-(defsubst flag-set-p (flags flag)
-  (plusp (logand flags flag)))
+(defmacro js2-set-flag (flags flag)
+  "Logical-or FLAG into FLAGS."
+  `(setq ,flags (logior ,flags ,flag)))
+
+(defsubst js2-flag-set-p (flags flag)
+  (/= 0 (logand flags flag)))
+
+(defsubst js2-flag-not-set-p (flags flag)
+  (zerop (logand flags flag)))
 
 ;; Stolen shamelessly from James Clark's nxml-mode.
 (defmacro js2-with-unmodifying-text-property-changes (&rest body)

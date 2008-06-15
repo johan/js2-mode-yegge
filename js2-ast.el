@@ -23,6 +23,7 @@
 (eval-and-compile
   (require 'cl))
 
+(require 'js2-util)
 (require 'js2-vars)
 
 ;; flags for ast node property 'member-type (used for e4x operators)
@@ -80,8 +81,8 @@ are currently no guarantees around this."
   props      ; optional node property list (an alist)
   parent)    ; link to parent node; null for root
 
-(defsubst js2-node-get-prop (node prop)
-  (assoc prop (js2-node-props node)))
+(defsubst js2-node-get-prop (node prop &optional default)
+  (or (cadr (assoc prop (js2-node-props node))) default))
 
 (defsubst js2-node-set-prop (node prop value)
   (setf (js2-node-props node)
@@ -96,7 +97,7 @@ Any node in the list may be nil, for convenience."
                                    (js2-node-pos n))))))
 
 (defsubst js2-node-add-children (parent &rest nodes)
-  "Set parent node of NODES to PARENT.
+  "Set parent node of NODES to PARENT, and return PARENT.
 Does nothing if we're not recording parent links.
 If any given node in NODES is nil, doesn't record that link."
   (js2-fixup-starts parent nodes)
@@ -115,34 +116,13 @@ If any given node in NODES is nil, doesn't record that link."
   "Return absolute buffer position of end of N."
   (+ (js2-node-abs-pos n) (js2-node-len n)))
 
-(defstruct (js2-stmt-node
-            (:include js2-node)
-            (:constructor nil))  ; abstract
-  "Abstract supertype of (most) statement nodes.")
-
-(defstruct (js2-expr-node
-            (:include js2-node)
-            (:constructor nil))  ; abstract
-  "Abstract supertype of (most) expression nodes.")
-
-(defstruct (js2-error-node
-            (:include js2-node)
-            (:constructor nil) ; silence emacs21 byte-compiler
-            (:constructor make-js2-error-node (&key (type js2-ERROR)
-                                                    (pos js2-token-beg)
-                                                    len)))
-  "AST node representing a parse error.")
-
-(put 'cl-struct-js2-error-node 'js2-visitor 'js2-visit-none)
-(put 'cl-struct-js2-error-node 'js2-printer 'js2-print-none)
-
 ;; It's important to make sure block nodes have a lisp list for the
 ;; child nodes, to limit printing recursion depth in an AST that
 ;; otherwise consists of defstruct vectors.  Emacs will crash printing
 ;; a sufficiently large vector tree.
 
 (defstruct (js2-block-node
-            (:include js2-stmt-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-block-node (&key (type js2-BLOCK)
                                                     (pos js2-token-beg)
@@ -150,7 +130,6 @@ If any given node in NODES is nil, doesn't record that link."
                                                     props
                                                     kids)))
   "A block of statements."
-  scope  ; a `js2-scope'
   kids)  ; a lisp list of the child statement nodes
 
 (put 'cl-struct-js2-block-node 'js2-visitor 'js2-visit-block)
@@ -168,8 +147,100 @@ If any given node in NODES is nil, doesn't record that link."
       (js2-print-ast kid (1+ i)))
     (insert pad "}")))
 
-(defstruct (js2-script-node
+(defstruct (js2-scope
             (:include js2-block-node)
+            (:constructor nil)
+            (:constructor make-js2-scope (&key (type js2-BLOCK)
+                                               (pos js2-token-beg)
+                                               len
+                                               kids)))
+  ;; The symbol-table is a LinkedHashMap<String,Symbol> in Rhino.
+  ;; I don't have one of those handy, so I'll use an alist for now.
+  ;; It's as fast as an emacs hashtable for up to about 50 elements,
+  ;; and is much lighter-weight to construct (both CPU and mem).
+  ;; The keys are interned strings (symbols) for faster lookup.
+  ;; Should switch to hybrid alist/hashtable eventually.
+  symbol-table  ; an alist of (symbol . js2-symbol)
+  parent-scope  ; a `js2-scope'
+  top)          ; top-level `js2-scope' (script/function)
+
+(put 'cl-struct-js2-scope 'js2-visitor 'js2-visit-none)
+(put 'cl-struct-js2-scope 'js2-printer 'js2-print-none)
+
+(defun js2-scope-set-parent-scope (scope parent)
+  (setf (js2-scope-parent-scope scope) parent
+        (js2-scope-top scope) (if (null parent)
+                                  scope
+                                (js2-scope-top parent))))
+
+(defun js2-node-get-enclosing-scope (node)
+  "Return the innermost `js2-scope' node surrounding NODE.
+Returns nil if there is no enclosing scope node."
+  (let ((parent (js2-node-parent node)))
+    (while (not (js2-scope-p parent))
+      (setq parent (js2-node-parent parent)))
+    parent))
+
+(defun js2-get-defining-scope (scope name)
+  "Search up scope chain from SCOPE looking for NAME, a string or symbol.
+Returns `js2-scope' in which NAME is defined, or nil if not found."
+  (let ((sym (if (symbolp name)
+                 name
+               (intern name)))
+        table
+        result
+        (continue t))
+    (while (and scope continue)
+      (if (and (setq table (js2-scope-symbol-table scope))
+               (assq sym table))
+          (setq continue nil
+                result scope)
+        (setq scope (js2-scope-parent-scope scope))))
+    result))
+
+(defsubst js2-scope-get-symbol (scope name)
+  "Return symbol table entry for NAME in SCOPE.
+NAME can be a string or symbol.   Returns a `js2-symbol' or nil if not found."
+  (and (js2-scope-symbol-table scope)
+       (cdr (assq (if (symbolp name)
+                      name
+                    (intern name))
+                  (js2-scope-symbol-table scope)))))
+
+(defsubst js2-scope-put-symbol (scope name symbol)
+  "Enter SYMBOL into symbol-table for SCOPE under NAME.
+NAME can be a lisp symbol or string.  SYMBOL is a `js2-symbol'."
+  (let* ((table (js2-scope-symbol-table scope))
+         (sym (if (symbolp name) name (intern name)))
+         (entry (assq sym table)))
+    (if entry
+        (setcdr entry symbol)
+      (push (cons sym symbol)
+            (js2-scope-symbol-table scope)))))
+
+(defstruct (js2-symbol
+            (:constructor nil)
+            (:constructor make-js2-symbol (decl-type name &optional ast-node)))
+  "A symbol table entry."
+  ;; One of js2-FUNCTION, js2-LP (for parameters), js2-VAR,
+  ;; js2-LET, or js2-CONST
+  decl-type
+  name  ; string
+  ast-node) ; a `js2-node'
+
+(defstruct (js2-error-node
+            (:include js2-node)
+            (:constructor nil) ; silence emacs21 byte-compiler
+            (:constructor make-js2-error-node (&key (type js2-ERROR)
+                                                    (pos js2-token-beg)
+                                                    len)))
+  "AST node representing a parse error.")
+
+(put 'cl-struct-js2-error-node 'js2-visitor 'js2-visit-none)
+(put 'cl-struct-js2-error-node 'js2-printer 'js2-print-none)
+
+(defstruct (js2-script-node
+            (:include js2-scope)
             (:constructor nil)
             (:constructor make-js2-script-node (&key (type js2-SCRIPT)
                                                      (pos js2-token-beg)
@@ -233,14 +304,18 @@ If any given node in NODES is nil, doesn't record that link."
           (js2-node-string n)))
 
 (defstruct (js2-expr-stmt-node
-            (:include js2-stmt-node)
+            (:include js2-node)
             (:constructor nil)
-            (:constructor make-js2-expr-stmt-node (&key (type js2-EXPR_RESULT)
+            (:constructor make-js2-expr-stmt-node (&key (type js2-EXPR_VOID)
                                                         (pos js2-ts-cursor)
                                                         len
                                                         expr)))
   "An expression statement."
   expr)
+
+(defsubst js2-expr-stmt-node-set-has-result (node)
+  "Change the node type to `js2-EXPR_RESULT'.  Used for code generation."
+  (setf (js2-node-type node) js2-EXPR_RESULT))
 
 (put 'cl-struct-js2-expr-stmt-node 'js2-visitor 'js2-visit-expr-stmt-node)
 (put 'cl-struct-js2-expr-stmt-node 'js2-printer 'js2-print-expr-stmt-node)
@@ -253,11 +328,10 @@ If any given node in NODES is nil, doesn't record that link."
   (insert ";\n"))
 
 (defstruct (js2-loop-node
-            (:include js2-stmt-node)
+            (:include js2-scope)
             (:constructor nil))
   "Abstract supertype of loop nodes."
   body      ; a `js2-block-node'
-  scope     ; a `js2-scope'
   lp        ; position of left-paren, nil if omitted
   rp)       ; position of right-paren, nil if omitted
 
@@ -402,7 +476,7 @@ If any given node in NODES is nil, doesn't record that link."
     (insert pad "}\n")))
 
 (defstruct (js2-return-node
-            (:include js2-stmt-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-return-node (&key (type js2-RETURN)
                                                      (pos js2-ts-cursor)
@@ -426,7 +500,7 @@ If any given node in NODES is nil, doesn't record that link."
   (insert ";\n"))
 
 (defstruct (js2-if-node
-            (:include js2-stmt-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-if-node (&key (type js2-IF)
                                                  (pos js2-ts-cursor)
@@ -475,7 +549,7 @@ If any given node in NODES is nil, doesn't record that link."
       (insert pad "}\n")))))
 
 (defstruct (js2-try-node
-            (:include js2-stmt-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-try-node (&key (type js2-TRY)
                                                   (pos js2-ts-cursor)
@@ -485,7 +559,7 @@ If any given node in NODES is nil, doesn't record that link."
                                                   finally-block)))
   "AST node for a try-statement."
   try-block
-  catch-clauses  ; a lisp list of js2-catch-node
+  catch-clauses  ; a lisp list of `js2-catch-node'
   finally-block) ; a `js2-finally-node'
 
 (put 'cl-struct-js2-try-node 'js2-visitor 'js2-visit-try-node)
@@ -513,7 +587,7 @@ If any given node in NODES is nil, doesn't record that link."
       (insert "\n"))))
 
 (defstruct (js2-catch-node
-            (:include js2-stmt-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-catch-node (&key (type js2-CATCH)
                                                     (pos js2-ts-cursor)
@@ -527,7 +601,7 @@ If any given node in NODES is nil, doesn't record that link."
   "AST node for a catch clause."
   var-name    ; a `js2-name-node'
   guard-kwd   ; relative buffer position of "if" in "catch (x if ...)"
-  guard-expr  ; catch condition, a `js2-expr-node'
+  guard-expr  ; catch condition, a `js2-node'
   block       ; statements, a `js2-block-node'
   lp          ; buffer position of left-paren, nil if omitted
   rp)         ; buffer position of right-paren, nil if omitted
@@ -555,29 +629,29 @@ If any given node in NODES is nil, doesn't record that link."
     (insert pad "}")))
 
 (defstruct (js2-finally-node
-            (:include js2-stmt-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-finally-node (&key (type js2-FINALLY)
                                                       (pos js2-ts-cursor)
                                                       len
-                                                      block)))
+                                                      body)))
   "AST node for a finally clause."
-  block)
+  body)  ; a `js2-node', often but not always a block node
 
 (put 'cl-struct-js2-finally-node 'js2-visitor 'js2-visit-finally-node)
 (put 'cl-struct-js2-finally-node 'js2-printer 'js2-print-finally-node)
 
 (defun js2-visit-finally-node (n v)
-  (js2-visit-ast (js2-finally-node-block n) v))
+  (js2-visit-ast (js2-finally-node-body n) v))
 
 (defun js2-print-finally-node (n i)
   (let ((pad (js2-make-pad i)))
     (insert " finally {\n")
-    (js2-print-body (js2-finally-node-block n) (1+ i))
+    (js2-print-body (js2-finally-node-body n) (1+ i))
     (insert pad "}\n")))
 
 (defstruct (js2-switch-node
-            (:include js2-stmt-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-switch-node (&key (type js2-SWITCH)
                                                      (pos js2-ts-cursor)
@@ -587,7 +661,7 @@ If any given node in NODES is nil, doesn't record that link."
                                                      lp
                                                      rp)))
   "AST node for a switch statement."
-  discriminant
+  discriminant  ; a `js2-node' (switch expression)
   cases  ; a lisp list of `js2-case-node'
   lp     ; position of open-paren for discriminant, nil if omitted
   rp)    ; position of close-paren for discriminant, nil if omitted
@@ -642,7 +716,7 @@ If any given node in NODES is nil, doesn't record that link."
       (js2-print-ast kid (1+ i)))))
 
 (defstruct (js2-throw-node
-            (:include js2-stmt-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-throw-node (&key (type js2-THROW)
                                                     (pos js2-ts-cursor)
@@ -663,7 +737,7 @@ If any given node in NODES is nil, doesn't record that link."
   (insert ";\n"))
 
 (defstruct (js2-with-node
-            (:include js2-stmt-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-with-node (&key (type js2-WITH)
                                                    (pos js2-ts-cursor)
@@ -699,23 +773,24 @@ If any given node in NODES is nil, doesn't record that link."
             (:constructor make-js2-label-node (&key (type js2-LABEL)
                                                     (pos js2-ts-cursor)
                                                     len
-                                                    label)))
+                                                    name)))
   "AST node for a statement label or case label."
-  label)  ; a string
+  name   ; a string
+  loop)  ; for validating and code-generating continue-to-label
 
 (put 'cl-struct-js2-label-node 'js2-visitor 'js2-visit-none)
 (put 'cl-struct-js2-label-node 'js2-printer 'js2-print-label)
 
 (defun js2-print-label (n i)
   (insert (js2-make-pad i)
-          (js2-label-node-label n)
+          (js2-label-node-name n)
           ":\n"))
 
 (defstruct (js2-labeled-stmt-node
-            (:include js2-stmt-node)
+            (:include js2-node)
             (:constructor nil)
             ;; type needs to be in `js2-side-effecting-tokens' to avoid spurious
-            ;; no-side-effects warnings
+            ;; no-side-effects warnings, hence js2-EXPR_RESULT.
             (:constructor make-js2-labeled-stmt-node (&key (type js2-EXPR_RESULT)
                                                            (pos js2-ts-cursor)
                                                            len
@@ -735,7 +810,7 @@ Returns nil if no such label is in the list."
   (let ((label-list (js2-labeled-stmt-node-labels lbl-stmt))
         result)
     (while (and label-list (not result))
-      (if (string= (js2-label-node-label (car label-list)) name)
+      (if (string= (js2-label-node-name (car label-list)) name)
           (setq result (car label-list))
         (setq label-list (cdr label-list))))
     result))
@@ -754,7 +829,7 @@ Returns nil if no such label is in the list."
   "Return t if NODE contains LABEL in its label set.
 NODE is a `js2-labels-node'.  LABEL is an identifier."
   (loop for nl in (js2-labeled-stmt-node-labels node)
-        if (string= label (js2-label-node-label nl))
+        if (string= label (js2-label-node-name nl))
           return t
         finally return nil))
 
@@ -764,7 +839,7 @@ NODE is a `js2-labels-node'.  LABEL is an identifier."
         (nconc (js2-labeled-stmt-node-labels node) (list label))))
 
 (defstruct (js2-jump-node
-            (:include js2-stmt-node)
+            (:include js2-node)
             (:constructor nil))
   "Abstract supertype of break and continue nodes."
   label   ; `js2-name-node' for location of label identifier, if present
@@ -828,7 +903,7 @@ a `js2-label-node' or the innermost enclosing loop.")
                                                        (pos js2-ts-cursor)
                                                        len
                                                        (ftype 'FUNCTION)
-                                                       (form 'STATEMENT_FORM)
+                                                       (form 'FUNCTION_STATEMENT)
                                                        (name "")
                                                        params
                                                        body
@@ -839,14 +914,16 @@ The `params' field is a lisp list of nodes.  Each node is either a simple
 `js2-name-node', or if it's a destructuring-assignment parameter, a
 `js2-array-node' or `js2-object-node'."
   ftype            ; FUNCTION, GETTER or SETTER
-  form             ; DECLARED_FORM, STATEMENT_FORM or EXPRESSED_FORM
+  form             ; FUNCTION_{STATEMENT|EXPRESSION|EXPRESSION_STATEMENT}
   name             ; function name (a `js2-name-node', or nil if anonymous)
-  params           ; a lisp list of `js2-function-arg-node'
+  params           ; a lisp list of destructuring forms or simple name nodes
   body             ; a `js2-block-node'
   lp               ; position of arg-list open-paren, or nil if omitted
   rp               ; position of arg-list close-paren, or nil if omitted
+  ignore-dynamic   ; ignore value of the dynamic-scope flag (interpreter only)
   needs-activation ; t if we need an activation object for this frame
-  is-generator)    ; t if this function contains a yield
+  is-generator     ; t if this function contains a yield
+  member-expr)     ; nonstandard Ecma extension from Rhino
 
 (put 'cl-struct-js2-function-node 'js2-visitor 'js2-visit-function-node)
 (put 'cl-struct-js2-function-node 'js2-printer 'js2-print-function-node)
@@ -892,33 +969,13 @@ The `params' field is a lisp list of nodes.  Each node is either a simple
   (and (js2-function-node-name node)
        (js2-name-node-name (js2-function-node-name node))))
 
-(defstruct (js2-function-arg-node
-            (:include js2-expr-node)
-            (:constructor nil)
-            (:constructor make-js2-function-arg-node (&key (type js2-NAME)
-                                                           (pos js2-token-beg)
-                                                           len
-                                                           value)))
-  "AST node for a function formal parameter.
-The value field is either an array/object literal or a name node."
-  value)
-
-(put 'cl-struct-js2-function-arg-node 'js2-visitor 'js2-visit-function-arg-node)
-(put 'cl-struct-js2-function-arg-node 'js2-printer 'js2-print-function-arg-node)
-
-(defun js2-visit-function-arg-node (n v)
-  (js2-visit-ast (js2-function-arg-node-value n) v))
-
-(defun js2-print-function-arg-node (n i)
-  (js2-print-ast (js2-function-arg-node-value n) i))
-
 ;; Having this be an expression node makes it more flexible.
 ;; There are IDE contexts, such as indentation in a for-loop initializer,
 ;; that work better if you assume it's an expression.  Whenever we have
 ;; a standalone var/const declaration, we just wrap with an expr stmt.
 ;; Eclipse apparently screwed this up and now has two versions, expr and stmt.
 (defstruct (js2-var-decl-node
-            (:include js2-expr-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-var-decl-node (&key (type js2-VAR)
                                                        (pos js2-token-beg)
@@ -959,29 +1016,29 @@ declarations, the node begins at the position of the first child."
               (insert ", ")))))
 
 (defstruct (js2-var-init-node
-            (:include js2-expr-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-var-init-node (&key (type js2-VAR)
                                                        (pos js2-ts-cursor)
                                                        len
-                                                       name
+                                                       target
                                                        initializer)))
   "AST node for a variable declaration.
 The type field will be js2-CONST for a const decl."
-  name          ; foo (a `js2-name-node')
-  initializer)  ; = bar * baz  (a `js2-expr-node')
+  target        ; `js2-name-node', `js2-object-node', or `js2-array-node'
+  initializer)  ; initializer expression, a `js2-node'
 
 (put 'cl-struct-js2-var-init-node 'js2-visitor 'js2-visit-var-init-node)
 (put 'cl-struct-js2-var-init-node 'js2-printer 'js2-print-var-init-node)
 
 (defun js2-visit-var-init-node (n v)
-  (js2-visit-ast (js2-var-init-node-name n) v)
+  (js2-visit-ast (js2-var-init-node-target n) v)
   (if (js2-var-init-node-initializer n)
       (js2-visit-ast (js2-var-init-node-initializer n) v)))
 
 (defun js2-print-var-init-node (n i)
   (let ((pad (js2-make-pad i))
-        (name (js2-var-init-node-name n))
+        (name (js2-var-init-node-target n))
         (init (js2-var-init-node-initializer n)))
     (insert pad)
     (js2-print-ast name 0)
@@ -989,37 +1046,8 @@ The type field will be js2-CONST for a const decl."
       (insert " = ")
       (js2-print-ast init 0))))
 
-(defstruct (js2-destructuring-init-node
-            (:include js2-var-init-node)
-            (:constructor nil)
-            (:constructor make-js2-destructuring-init-node (&key (type js2-VAR)
-                                                                 (pos js2-ts-cursor)
-                                                                 len
-                                                                 lhs
-                                                                 initializer)))
-  "AST node for a destructuring-assignment expression.
-It will likely have a `js2-var-decl-node' as its direct parent.
-The lhs field is an array literal or object literal node, and the initializer
-is the expression that will be destructured."
-  lhs)  ; a `js2-expr-node' (array literal or obj literal)
-
-(put 'cl-struct-js2-destructuring-init-node 'js2-visitor 'js2-visit-destructuring-init)
-(put 'cl-struct-js2-destructuring-init-node 'js2-printer 'js2-print-destructuring-init)
-
-(defun js2-visit-destructuring-init (n v)
-  (js2-visit-ast (js2-destructuring-init-node-lhs n) v)
-  (if (js2-destructuring-init-node-initializer n) ; not present in for..in loops
-      (js2-visit-ast (js2-destructuring-init-node-initializer n) v)))
-
-(defun js2-print-destructuring-init (n i)
-  (insert (js2-make-pad i))
-  (js2-print-ast (js2-destructuring-init-node-lhs n) 0)
-  (when (js2-destructuring-init-node-initializer n)
-    (insert " = ")
-    (js2-print-ast (js2-destructuring-init-node-initializer n) 0)))
-
 (defstruct (js2-cond-node
-            (:include js2-expr-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-cond-node (&key (type js2-HOOK)
                                                    (pos js2-ts-cursor)
@@ -1054,7 +1082,7 @@ is the expression that will be destructured."
     (js2-print-ast (js2-cond-node-false-expr n) 0)))
 
 (defstruct (js2-infix-node
-            (:include js2-expr-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-infix-node (&key type
                                                     (pos js2-ts-cursor)
@@ -1062,19 +1090,21 @@ is the expression that will be destructured."
                                                     op-pos
                                                     left
                                                     right)))
-  "Abstract base type for infix expressions.
+  "Represents infix expressions.
 Includes assignment ops like `|=', and the comma operator.
 The type field inherited from `js2-node' holds the operator."
-  op-pos ; buffer position where operator begins
-  left      ; a `js2-expr-node'
-  right)    ; a `js2-expr-node' or `js2-function-node'
+  op-pos    ; buffer position where operator begins
+  left      ; any `js2-node'
+  right)    ; any `js2-node'
 
 (put 'cl-struct-js2-infix-node 'js2-visitor 'js2-visit-infix-node)
 (put 'cl-struct-js2-infix-node 'js2-printer 'js2-print-infix-node)
 
 (defun js2-visit-infix-node (n v)
-  (js2-visit-ast (js2-infix-node-left n) v)
-  (js2-visit-ast (js2-infix-node-right n) v))
+  (when (js2-infix-node-left n)
+    (js2-visit-ast (js2-infix-node-left n) v))
+  (when (js2-infix-node-right n)
+    (js2-visit-ast (js2-infix-node-right n) v)))
 
 (defconst js2-operator-tokens
   (let ((table (make-hash-table :test 'eq))
@@ -1141,20 +1171,6 @@ The type field inherited from `js2-node' holds the operator."
     (insert " ")
     (js2-print-ast (js2-infix-node-right n) 0)))
 
-(defstruct (js2-in-node
-            (:include js2-infix-node)
-            (:constructor nil)
-            (:constructor make-js2-in-node (&key (type js2-IN)
-                                                 (pos js2-ts-cursor)
-                                                 len
-                                                 op-pos
-                                                 left
-                                                 right)))
-  "AST node for an in-expression such as `foo in bar'")
-
-(put 'cl-struct-js2-in-node 'js2-visitor 'js2-visit-infix-node)
-(put 'cl-struct-js2-in-node 'js2-printer 'js2-print-infix-node)
-
 (defstruct (js2-assign-node
             (:include js2-infix-node)
             (:constructor nil)
@@ -1171,7 +1187,7 @@ The type field holds the actual assignment operator.")
 (put 'cl-struct-js2-assign-node 'js2-printer 'js2-print-infix-node)
 
 (defstruct (js2-unary-node
-            (:include js2-expr-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-unary-node (&key type ; required
                                                     (pos js2-ts-cursor)
@@ -1181,7 +1197,7 @@ The type field holds the actual assignment operator.")
 The type field can be NOT, BITNOT, POS, NEG, INC, DEC,
 TYPEOF, or DELPROP.  For INC or DEC, a 'postfix node
 property is added if the operator follows the operand."
-  operand)  ; a `js2-expr-node'
+  operand)  ; a `js2-node' expression
 
 (put 'cl-struct-js2-unary-node 'js2-visitor 'js2-visit-unary-node)
 (put 'cl-struct-js2-unary-node 'js2-printer 'js2-print-unary-node)
@@ -1205,112 +1221,68 @@ property is added if the operator follows the operand."
     (when postfix
       (insert op))))
 
-(defstruct (js2-let-expr-node
-            (:include js2-expr-node)
+(defstruct (js2-let-node
+            (:include js2-scope)
             (:constructor nil)
-            (:constructor make-js2-let-expr-node (&key (type js2-LETEXPR)
-                                                       (pos js2-token-beg)
-                                                       len
-                                                       vars
-                                                       expr
-                                                       lp
-                                                       rp)))
-  "AST node for a let expression such as let (i=6) i+2."
-  vars
-  expr   ; a `js2-expr-node'
-  scope  ; a `js2-scope'
+            (:constructor make-js2-let-node (&key (type js2-LETEXPR)
+                                                  (pos js2-token-beg)
+                                                  len
+                                                  vars
+                                                  body
+                                                  lp
+                                                  rp)))
+  "AST node for a let expression or a let statement.
+Note that a let declaration such as let x=6, y=7 is a `js2-var-decl-node'."
+  vars   ; a `js2-var-decl-node'
+  body   ; a `js2-node' representing the expression or body block
   lp
   rp)
 
-(put 'cl-struct-js2-let-expr-node 'js2-visitor 'js2-visit-let-expr-node)
-(put 'cl-struct-js2-let-expr-node 'js2-printer 'js2-print-let-expr-node)
+(put 'cl-struct-js2-let-node 'js2-visitor 'js2-visit-let-node)
+(put 'cl-struct-js2-let-node 'js2-printer 'js2-print-let-node)
 
-(defun js2-visit-let-expr-node (n v)
-  (js2-visit-ast (js2-let-expr-node-vars n) v)
-  (if (js2-let-expr-node-expr n)
-      (js2-visit-ast (js2-let-expr-node-expr n) v)))
+(defun js2-visit-let-node (n v)
+  (when (js2-let-node-vars n)
+    (js2-visit-ast (js2-let-node-vars n) v))
+  (when (js2-let-node-body n)
+    (js2-visit-ast (js2-let-node-body n) v)))
 
-(defun js2-print-let-expr-node (n i)
-  (let ((expr (js2-let-expr-node-expr n)))
-  (insert (js2-make-pad i) "let ")
-  (if expr
-      (insert "("))
-  (js2-print-ast (js2-let-expr-node-vars n) 0)
-  (when expr
-    (insert ") ")
-    (js2-print-ast expr 0))))
+(defun js2-print-let-node (n i)
+  (insert (js2-make-pad i) "let (")
+  (js2-print-ast (js2-let-node-vars n) 0)
+  (insert ") ")
+  (js2-print-ast (js2-let-node-body n) i))
 
-(defstruct (js2-let-stmt-node
-            (:include js2-stmt-node)
+(defstruct (js2-keyword-node
+            (:include js2-node)
             (:constructor nil)
-            (:constructor make-js2-let-stmt-node (&key (type js2-LET)
-                                                       (pos js2-token-beg)
-                                                       len
-                                                       vars
-                                                       body
-                                                       lp
-                                                       rp)))
-  "AST node for a let statement such as let (i=6) {x += i}."
-  vars
-  body   ; a statement node
-  scope  ; a `js2-scope'
-  lp     ; position of left-paren, nil if omitted
-  rp)    ; position of right-paren, nil if omitted
+            (:constructor make-js2-keyword-node (&key type
+                                                      (pos js2-token-beg)
+                                                      (len (- js2-ts-cursor pos)))))
+  "AST node representing a literal keyword such as `null'.
+Used for `null', `this', `true', `false' and `debugger'.
+The node type is set to js2-NULL, js2-THIS, etc.")
 
-(put 'cl-struct-js2-let-stmt-node 'js2-visitor 'js2-visit-let-stmt-node)
-(put 'cl-struct-js2-let-stmt-node 'js2-printer 'js2-print-let-stmt-node)
+(put 'cl-struct-js2-keyword-node 'js2-visitor 'js2-visit-none)
+(put 'cl-struct-js2-keyword-node 'js2-printer 'js2-print-keyword-node)
 
-(defun js2-visit-let-stmt-node (n v)
-  (let ((body (js2-let-stmt-node-body n)))
-    (js2-visit-ast (js2-let-stmt-node-vars n) v)
-    (when body
-      (js2-visit-ast body v))))
+(defun js2-print-keyword-node (n i)
+  (insert (js2-make-pad i)
+          (let ((tt (js2-node-type n)))
+            (cond
+             ((= tt 'js2-THIS) "this")
+             ((= tt 'js2-NULL) "null")
+             ((= tt 'js2-TRUE) "true")
+             ((= tt 'js2-FALSE) "false")
+             ((= tt 'js2-DEBUGGER) "debugger")
+             (t (error "Invalid keyword literal type: %d" tt))))))
 
-(defun js2-print-let-stmt-node (n i)
-  (let ((pad (js2-make-pad i))
-        (body (js2-let-stmt-node-body n)))
-    (insert pad "let ")
-    (if body
-        (insert "("))
-    (js2-print-ast (js2-let-stmt-node-vars n) 0)
-    (if (not body)
-        (insert ";\n")
-      (insert ") {\n")
-      (js2-print-body (js2-let-stmt-node-body n) (1+ i))
-      (insert pad "}\n"))))
-
-;; `defstruct' doesn't provide multiple inheritance for fields, alas.
-(defsubst js2-let-node-p (node)
-  "Interface predicate for let-stmt and let-expr nodes."
-  (or (js2-let-expr-node-p node)
-      (js2-let-stmt-node-p node)))
-
-(defsubst js2-let-node-lp (node)
-  (if (js2-let-expr-node-p node)
-      (js2-let-expr-node-lp node)
-    (js2-let-stmt-node-lp node)))
-
-(defsubst js2-let-node-rp (node)
-  (if (js2-let-expr-node-p node)
-      (js2-let-expr-node-rp node)
-    (js2-let-stmt-node-rp node)))
-
-(defstruct (js2-debugger-node
-            (:include js2-stmt-node)
-            (:constructor nil)
-            (:constructor make-js2-debugger-node (&key (type js2-DEBUGGER)
-                                                       (pos js2-token-beg)
-                                                       (len (- js2-ts-cursor pos)))))
-  "AST node for debugger statement.")
-
-(put 'cl-struct-js2-debugger-node 'js2-visitor 'js2-visit-none)
-(put 'cl-struct-js2-debugger-node 'js2-printer 'js2-print-debugger)
-
-(defun js2-print-debugger (n i)
-  (insert (js2-make-pad i) "debugger;\n"))
+(defsubst js2-this-node-p (node)
+  "Return t if this node is a `js2-literal-node' of type js2-THIS."
+  (eq (js2-node-type node) js2-THIS))
 
 (defstruct (js2-new-node
-            (:include js2-expr-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-new-node (&key (type js2-NEW)
                                                   (pos js2-token-beg)
@@ -1348,7 +1320,7 @@ property is added if the operator follows the operand."
     (js2-print-ast (js2-new-node-initializer n))))
 
 (defstruct (js2-name-node
-            (:include js2-expr-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-name-node (&key (type js2-NAME)
                                                    (pos js2-token-beg)
@@ -1356,17 +1328,25 @@ property is added if the operator follows the operand."
                                                            js2-token-beg))
                                                    (name js2-ts-string))))
   "AST node for a JavaScript identifier"
-  name)  ; a string
+  name   ; a string
+  scope) ; a `js2-scope' (optional, used for codegen)
 
 (put 'cl-struct-js2-name-node 'js2-visitor 'js2-visit-none)
-(put 'cl-struct-js2-name-node 'js2-printer 'js2-print-name)
+(put 'cl-struct-js2-name-node 'js2-printer 'js2-print-name-node)
 
-(defun js2-print-name (n i)
+(defun js2-print-name-node (n i)
   (insert (js2-make-pad i)
           (js2-name-node-name n)))
 
+(defsubst js2-name-node-length (node)
+  "Return identifier length of NODE, a `js2-name-node'.
+Returns 0 if NODE is nil or its identifier field is nil."
+  (if node
+      (length (js2-name-node-name node))
+    0))
+
 (defstruct (js2-number-node
-            (:include js2-expr-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-number-node (&key (type js2-NUMBER)
                                                      (pos js2-token-beg)
@@ -1386,7 +1366,7 @@ property is added if the operator follows the operand."
           (number-to-string (js2-number-node-value n))))
 
 (defstruct (js2-regexp-node
-            (:include js2-expr-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-regexp-node (&key (type js2-REGEXP)
                                                      (pos js2-token-beg)
@@ -1410,7 +1390,7 @@ property is added if the operator follows the operand."
       (insert (js2-regexp-node-flags n))))
 
 (defstruct (js2-string-node
-            (:include js2-expr-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-string-node (&key (type js2-STRING)
                                                      (pos js2-token-beg)
@@ -1423,14 +1403,14 @@ You can tell the quote type by looking at the first character."
   value) ; the characters of the string, including the quotes
 
 (put 'cl-struct-js2-string-node 'js2-visitor 'js2-visit-none)
-(put 'cl-struct-js2-string-node 'js2-printer 'js2-print-string)
+(put 'cl-struct-js2-string-node 'js2-printer 'js2-print-string-node)
 
-(defun js2-print-string (n i)
+(defun js2-print-string-node (n i)
   (insert (js2-make-pad i)
           (js2-node-string n)))
 
 (defstruct (js2-array-node
-            (:include js2-expr-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-array-node (&key (type js2-ARRAYLIT)
                                                     (pos js2-ts-cursor)
@@ -1453,7 +1433,7 @@ You can tell the quote type by looking at the first character."
   (insert "]"))
 
 (defstruct (js2-object-node
-            (:include js2-expr-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-object-node (&key (type js2-OBJECTLIT)
                                                      (pos js2-ts-cursor)
@@ -1485,7 +1465,7 @@ You can tell the quote type by looking at the first character."
                                                           op-pos)))
   "AST node for an object literal prop:value entry.
 The `left' field is the property:  a name node, string node or number node.
-The `right' field is a `js2-expr-node' representing the initializer value.")
+The `right' field is a `js2-node' representing the initializer value.")
 
 (put 'cl-struct-js2-object-prop-node 'js2-visitor 'js2-visit-infix-node)
 (put 'cl-struct-js2-object-prop-node 'js2-printer 'js2-print-object-prop-node)
@@ -1503,62 +1483,62 @@ The `right' field is a `js2-expr-node' representing the initializer value.")
                                                             (pos js2-ts-cursor)
                                                             len
                                                             left
-                                                            right
-                                                            kwd)))
+                                                            right)))
   "AST node for a getter/setter property in an object literal.
 The `left' field is the `js2-name-node' naming the getter/setter prop.
 The `right' field is always an anonymous `js2-function-node' with a node
-property `GETTER_SETTER' set to js2-GET or js2-SET. "
-  kwd)  ; a `js2-string-node' representing the keyword
+property `GETTER_SETTER' set to js2-GET or js2-SET. ")
 
 (put 'cl-struct-js2-getter-setter-node 'js2-visitor 'js2-visit-infix-node)
 (put 'cl-struct-js2-getter-setter-node 'js2-printer 'js2-print-getter-setter)
 
 (defun js2-print-getter-setter (n i)
   (let ((pad (js2-make-pad i))
-        (kwd (js2-getter-setter-node-kwd n))
         (left (js2-getter-setter-node-left n))
         (right (js2-getter-setter-node-right n)))
-    (insert pad (js2-string-node-value kwd) " ")
+    (insert pad)
+    (insert (if (= (js2-node-type n) js2-GET) "get " "set "))
     (js2-print-ast left 0)
     (js2-print-ast right 0)))
 
 (defstruct (js2-prop-get-node
-            (:include js2-expr-node)
+            (:include js2-infix-node)
             (:constructor nil)
             (:constructor make-js2-prop-get-node (&key (type js2-GETPROP)
                                                        (pos js2-ts-cursor)
                                                        len
-                                                       target
-                                                       prop)))
-  "AST node for a dotted property reference, e.g. foo.bar or foo().bar"
-  target  ; foo (can be any expression)
-  prop)   ; bar (a `js2-name-node')
+                                                       left
+                                                       right)))
+  "AST node for a dotted property reference, e.g. foo.bar or foo().bar")
 
 (put 'cl-struct-js2-prop-get-node 'js2-visitor 'js2-visit-prop-get-node)
 (put 'cl-struct-js2-prop-get-node 'js2-printer 'js2-print-prop-get-node)
 
 (defun js2-visit-prop-get-node (n v)
-  (js2-visit-ast (js2-prop-get-node-target n) v)
-  (js2-visit-ast (js2-prop-get-node-prop n) v))
+  (when (js2-prop-get-node-left n)
+    (js2-visit-ast (js2-prop-get-node-left n) v))
+  (when (js2-prop-get-node-right n)
+    (js2-visit-ast (js2-prop-get-node-right n) v)))
 
 (defun js2-print-prop-get-node (n i)
   (insert (js2-make-pad i))
-  (js2-print-ast (js2-prop-get-node-target n) 0)
+  (js2-print-ast (js2-prop-get-node-left n) 0)
   (insert ".")
-  (js2-print-ast (js2-prop-get-node-prop n) 0))
+  (js2-print-ast (js2-prop-get-node-right n) 0))
 
 (defstruct (js2-elem-get-node
-            (:include js2-prop-get-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-elem-get-node (&key (type js2-GETELEM)
                                                        (pos js2-ts-cursor)
                                                        len
                                                        target
-                                                       prop
+                                                       element
                                                        lb
                                                        rb)))
   "AST node for an array index expression such as foo[bar]."
+  target  ; a `js2-node' - the expression preceding the "."
+  element ; a `js2-node' - the expression in brackets
   lb      ; position of left-bracket, nil if omitted
   rb)     ; position of right-bracket, nil if omitted
 
@@ -1566,29 +1546,31 @@ property `GETTER_SETTER' set to js2-GET or js2-SET. "
 (put 'cl-struct-js2-elem-get-node 'js2-printer 'js2-print-elem-get-node)
 
 (defun js2-visit-elem-get-node (n v)
-  (js2-visit-ast (js2-elem-get-node-target n) v)
-  (js2-visit-ast (js2-elem-get-node-prop n) v))
+  (when (js2-elem-get-node-target n)
+    (js2-visit-ast (js2-elem-get-node-target n) v))
+  (when (js2-elem-get-node-element n)
+    (js2-visit-ast (js2-elem-get-node-element n) v)))
 
 (defun js2-print-elem-get-node (n i)
   (insert (js2-make-pad i))
   (js2-print-ast (js2-elem-get-node-target n) 0)
   (insert "[")
-  (js2-print-ast (js2-elem-get-node-prop n) 0)
+  (js2-print-ast (js2-elem-get-node-element n) 0)
   (insert "]"))
 
 (defstruct (js2-call-node
-            (:include js2-expr-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-call-node (&key (type js2-CALL)
                                                    (pos js2-ts-cursor)
                                                    len
-                                                   expr
+                                                   target
                                                    args
                                                    lp
                                                    rp)))
   "AST node for a JavaScript function call."
-  expr  ; a `js2-expr-node' evaluating to the function to call
-  args  ; a lisp list of argument AST nodes
+  target  ; a `js2-node' evaluating to the function to call
+  args  ; a lisp list of `js2-node' arguments
   lp    ; position of open-paren, or nil if missing
   rp)   ; position of close-paren, or nil if missing
 
@@ -1596,49 +1578,17 @@ property `GETTER_SETTER' set to js2-GET or js2-SET. "
 (put 'cl-struct-js2-call-node 'js2-printer 'js2-print-call-node)
 
 (defun js2-visit-call-node (n v)
-  (js2-visit-ast (js2-call-node-expr n) v)
+  (js2-visit-ast (js2-call-node-target n) v)
   (dolist (arg (js2-call-node-args n))
     (js2-visit-ast arg v)))
 
 (defun js2-print-call-node (n i)
   (insert (js2-make-pad i))
-  (js2-print-ast (js2-call-node-expr n) 0)
+  (js2-print-ast (js2-call-node-target n) 0)
   (insert "(")
   (js2-print-list (js2-call-node-args n))
   (insert ")"))
 
-(defstruct (js2-literal-node
-            (:include js2-expr-node)
-            (:constructor nil)
-            (:constructor make-js2-literal-node (&key type  ; required
-                                                      (pos js2-token-beg)
-                                                      (len (- js2-ts-cursor
-                                                              js2-token-beg)))))
-  "AST node representing a literal value such as `null'.
-Used for `null', `this', `true' and `false'.
-The node type is set to js2-NULL, js2-THIS, etc.")
-
-(put 'cl-struct-js2-literal-node 'js2-visitor 'js2-visit-none)
-(put 'cl-struct-js2-literal-node 'js2-printer 'js2-print-literal-node)
-
-(defsubst js2-this-node-p (node)
-  "Return t if this node is a `js2-literal-node' of type js2-THIS."
-  (eq (js2-node-type node) js2-THIS))
-
-(defun js2-print-literal-node (n i)
-  (insert (js2-make-pad i))
-  (insert
-   (let ((type (js2-node-type n)))
-     (cond
-      ((= type js2-NULL) "null")
-      ((= type js2-VOID) "void")
-      ((= type js2-THIS) "this")
-      ((= type js2-TRUE) "true")
-      ((= type js2-FALSE) "false")
-      (t
-       (error "Unknown literal value %s" type))))))
-
-;; This can be an expr or statment, unfortunately.
 (defstruct (js2-yield-node
             (:include js2-node)
             (:constructor nil)
@@ -1646,8 +1596,8 @@ The node type is set to js2-NULL, js2-THIS, etc.")
                                                     (pos js2-ts-cursor)
                                                     len
                                                     value)))
-  "AST node for yield statement."
-  value) ; value to be yielded
+  "AST node for yield statement or expression."
+  value) ; optional:  value to be yielded
 
 (put 'cl-struct-js2-yield-node 'js2-visitor 'js2-visit-yield-node)
 (put 'cl-struct-js2-yield-node 'js2-printer 'js2-print-yield-node)
@@ -1663,7 +1613,7 @@ The node type is set to js2-NULL, js2-THIS, etc.")
     (js2-print-ast (js2-yield-node-value n) 0)))
 
 (defstruct (js2-paren-node
-            (:include js2-expr-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-paren-node (&key (type js2-LP)
                                                     (pos js2-ts-cursor)
@@ -1672,7 +1622,7 @@ The node type is set to js2-NULL, js2-THIS, etc.")
   "AST node for a parenthesized expression.
 In particular, used when the parens are syntactically optional,
 as opposed to required parens such as those enclosing an if-conditional."
-  expr)   ; `js2-expr-node'
+  expr)   ; `js2-node'
 
 (put 'cl-struct-js2-paren-node 'js2-visitor 'js2-visit-paren-node)
 (put 'cl-struct-js2-paren-node 'js2-printer 'js2-print-paren-node)
@@ -1687,7 +1637,7 @@ as opposed to required parens such as those enclosing an if-conditional."
   (insert ")"))
 
 (defstruct (js2-array-comp-node
-            (:include js2-expr-node)
+            (:include js2-scope)
             (:constructor nil)
             (:constructor make-js2-array-comp-node (&key (type js2-ARRAYCOMP)
                                                          (pos js2-ts-cursor)
@@ -1760,19 +1710,8 @@ as opposed to required parens such as those enclosing an if-conditional."
   (js2-print-ast (js2-array-comp-loop-node-object n) 0)
   (insert ")"))
 
-(defstruct (js2-empty-stmt-node
-            (:include js2-stmt-node)
-            (:constructor nil)
-            (:constructor make-js2-empty-stmt-node (&key (type js2-EMPTY)
-                                                         (pos js2-token-beg)
-                                                         len)))
-  "AST node for an empty statement.")
-
-(put 'cl-struct-js2-empty-stmt-node 'js2-visitor 'js2-visit-none)
-(put 'cl-struct-js2-empty-stmt-node 'js2-printer 'js2-print-none)
-
 (defstruct (js2-empty-expr-node
-            (:include js2-expr-node)
+            (:include js2-node)
             (:constructor nil)
             (:constructor make-js2-empty-expr-node (&key (type js2-EMPTY)
                                                          (pos js2-token-beg)
@@ -1790,9 +1729,8 @@ as opposed to required parens such as those enclosing an if-conditional."
                                                   len
                                                   kids)))
   "AST node for initial parse of E4X literals.
-The kids field is a list of XML fragments:  strings and js exprs.
-Rhino just creates a concatenation of them (binary plus) and passes
-the concatenation to the constructor of a new XML object.")
+The kids field is a list of XML fragments, each a `js2-string-node' or
+a `js2-xml-js-expr-node'.  Equivalent to Rhino's XmlLiteral node.")
 
 (put 'cl-struct-js2-xml-node 'js2-visitor 'js2-visit-block)
 (put 'cl-struct-js2-xml-node 'js2-printer 'js2-print-xml-node)
@@ -1800,6 +1738,188 @@ the concatenation to the constructor of a new XML object.")
 (defun js2-print-xml-node (n i)
   (dolist (kid (js2-xml-node-kids n))
     (js2-print-ast kid i)))
+
+(defstruct (js2-xml-js-expr-node
+            (:include js2-xml-node)
+            (:constructor nil)
+            (:constructor make-js2-xml-js-expr-node (&key (type js2-XML)
+                                                          (pos js2-ts-cursor)
+                                                          len
+                                                          expr)))
+  "AST node for an embedded JavaScript {expression} in an E4X literal.
+The start and end fields correspond to the curly-braces."
+  expr)  ; a `js2-expr-node' of some sort
+
+(put 'cl-struct-js2-xml-js-expr-node 'js2-visitor 'js2-visit-xml-js-expr)
+(put 'cl-struct-js2-xml-js-expr-node 'js2-printer 'js2-print-xml-js-expr)
+
+(defun js2-visit-xml-js-expr (n v)
+  (js2-visit-ast (js2-xml-js-expr-node-expr n) v))
+
+(defun js2-print-xml-js-expr (n i)
+  (insert (js2-make-pad i))
+  (insert "{")
+  (js2-print-ast (js2-xml-js-expr-node-expr n) 0)
+  (insert "}"))
+
+(defstruct (js2-xml-dot-query-node
+            (:include js2-infix-node)
+            (:constructor nil)
+            (:constructor make-js2-xml-dot-query-node (&key (type js2-DOTQUERY)
+                                                            (pos js2-ts-cursor)
+                                                            op-pos
+                                                            len
+                                                            left
+                                                            right
+                                                            rp)))
+  "AST node for an E4X foo.(bar) filter expression.
+Note that the left-paren is automatically the character immediately
+following the dot (.) in the operator.  No whitespace is permitted
+between the dot and the lp by the scanner."
+  rp)
+
+(put 'cl-struct-js2-xml-dot-query-node 'js2-visitor 'js2-visit-infix-node)
+(put 'cl-struct-js2-xml-dot-query-node 'js2-printer 'js2-print-xml-dot-query)
+
+(defun js2-print-xml-dot-query (n i)
+  (insert (js2-make-pad i))
+  (js2-print-ast (js2-xml-dot-query-node-left n) 0)
+  (insert ".(")
+  (js2-print-ast (js2-xml-dot-query-node-right n) 0)
+  (insert ")"))
+
+(defstruct (js2-xml-ref-node
+            (:include js2-node)
+            (:constructor nil))  ; abstract
+  "Base type for E4X XML attribute-access or property-get expressions.
+Such expressions can take a variety of forms.  The general syntax has
+three parts:
+
+  - (optional) an @ (specifying an attribute access)
+  - (optional) a namespace (a `js2-name-node') and double-colon
+  - (required) either a `js2-name-node' or a bracketed [expression]
+
+The property-name expressions (examples:  ns::name, @name) are
+represented as `js2-xml-prop-ref' nodes.  The bracketed-expression
+versions (examples:  ns::[name], @[name]) become `js2-xml-elem-ref' nodes.
+
+This node type (or more specifically, its subclasses) will sometimes
+be the right-hand child of a `js2-prop-get-node' or a
+`js2-infix-node' of type `js2-DOTDOT', the .. xml-descendants operator.
+The `js2-xml-ref-node' may also be a standalone primary expression with
+no explicit target, which is valid in certain expression contexts such as
+
+  company..employee.(@id < 100)
+
+in this case, the @id is a `js2-xml-ref' that is part of an infix '<'
+expression whose parent is a `js2-xml-dot-query-node'."
+  namespace
+  at-pos
+  colon-pos)
+
+(defsubst js2-xml-ref-node-attr-access-p (node)
+  "Return non-nil if this expression began with an @-token."
+  (and (numberp (js2-xml-ref-node-at-pos node))
+       (plusp (js2-xml-ref-node-at-pos node))))
+
+(defstruct (js2-xml-prop-ref-node
+            (:include js2-xml-ref-node)
+            (:constructor nil)
+            (:constructor make-js2-xml-prop-ref-node (&key (type js2-REF_NAME)
+                                                           (pos js2-token-beg)
+                                                           len
+                                                           propname
+                                                           namespace
+                                                           at-pos
+                                                           colon-pos)))
+  "AST node for an E4X XML [expr] property-ref expression.
+The JavaScript syntax is an optional @, an optional ns::, and a name.
+
+  [ '@' ] [ name '::' ] name
+
+Examples include name, ns::name, ns::*, *::name, *::*, @attr, @ns::attr,
+@ns::*, @*::attr, @*::*, and @*.
+
+The node starts at the @ token, if present.  Otherwise it starts at the
+namespace name.  The node bounds extend through the closing right-bracket,
+or if it is missing due to a syntax error, through the end of the index
+expression."
+  propname)
+
+(put 'cl-struct-js2-xml-prop-ref-node 'js2-visitor 'js2-visit-xml-prop-ref-node)
+(put 'cl-struct-js2-xml-prop-ref-node 'js2-printer 'js2-print-xml-prop-ref-node)
+
+(defun js2-visit-xml-prop-ref-node (n v)
+  (if (js2-xml-prop-ref-node-namespace n)
+      (js2-visit-ast (js2-xml-prop-ref-node-namespace n) v))
+  (if (js2-xml-prop-ref-node-propname n)
+      (js2-visit-ast (js2-xml-prop-ref-node-propname n) v)))
+
+(defun js2-print-xml-prop-ref-node (n i)
+  (insert (js2-make-pad i))
+  (if (js2-xml-ref-node-attr-access-p n)
+      (insert "@"))
+  (when (js2-xml-prop-ref-node-namespace n)
+    (js2-print-ast (js2-xml-prop-ref-node-namespace n) 0)
+    (insert "::"))
+  (if (js2-xml-prop-ref-node-propname n)
+      (js2-print-ast (js2-xml-prop-ref-node-propname n) 0)))
+
+(defstruct (js2-xml-elem-ref-node
+            (:include js2-xml-ref-node)
+            (:constructor nil)
+            (:constructor make-js2-xml-elem-ref-node (&key (type js2-REF_MEMBER)
+                                                           (pos js2-token-beg)
+                                                           len
+                                                           expr
+                                                           lb
+                                                           rb
+                                                           namespace
+                                                           at-pos
+                                                           colon-pos)))
+  "AST node for an E4X XML [expr] member-ref expression.
+Syntax:
+
+ [ '@' ] [ name '::' ] '[' expr ']'
+
+Examples include ns::[expr], @ns::[expr], @[expr], *::[expr] and @*::[expr].
+
+Note that the form [expr] (i.e. no namespace or attribute-qualifier)
+is not a legal E4X XML element-ref expression, since it's already used
+for standard JavaScript element-get array indexing.  Hence, a
+`js2-xml-elem-ref-node' always has either the attribute-qualifier, a
+non-nil namespace node, or both.
+
+The node starts at the @ token, if present.  Otherwise it starts
+at the namespace name.  The node bounds extend through the closing
+right-bracket, or if it is missing due to a syntax error, through the
+end of the index expression."
+  expr  ; the bracketed index expression
+  lb
+  rb)
+
+(put 'cl-struct-js2-xml-elem-ref-node 'js2-visitor 'js2-visit-xml-elem-ref-node)
+(put 'cl-struct-js2-xml-elem-ref-node 'js2-printer 'js2-print-xml-elem-ref-node)
+
+(defun js2-visit-xml-elem-ref-node (n v)
+  (if (js2-xml-elem-ref-node-namespace n)
+      (js2-visit-ast (js2-xml-elem-ref-node-namespace n) v))
+  (if (js2-xml-elem-ref-node-expr n)
+      (js2-visit-ast (js2-xml-elem-ref-node-expr n) v)))
+
+(defun js2-print-xml-elem-ref-node (n i)
+  (insert (js2-make-pad i))
+  (if (js2-xml-ref-node-attr-access-p n)
+      (insert "@"))
+  (when (js2-xml-elem-ref-node-namespace n)
+    (js2-print-ast (js2-xml-elem-ref-node-namespace n) 0)
+    (insert "::"))
+  (insert "[")
+  (if (js2-xml-elem-ref-node-expr n)
+      (js2-print-ast (js2-xml-elem-ref-node-expr n) 0))
+  (insert "]"))
+
+;;; Placeholder nodes for when we try parsing the XML literals structurally.
 
 (defstruct (js2-xml-start-tag-node
             (:include js2-xml-node)
@@ -1811,7 +1931,7 @@ the concatenation to the constructor of a new XML object.")
                                                             attrs
                                                             kids
                                                             empty-p)))
-  "AST node for an XML start-tag.
+  "AST node for an XML start-tag.  Not currently used.
 The `kids' field is a lisp list of child content nodes."
   name      ; a `js2-xml-name-node'
   attrs     ; a lisp list of `js2-xml-attr-node'
@@ -1843,7 +1963,7 @@ The `kids' field is a lisp list of child content nodes."
                                                           (pos js2-ts-cursor)
                                                           len
                                                           name)))
-  "AST node for an XML end-tag."
+  "AST node for an XML end-tag.  Not currently used."
   name)  ; a `js2-xml-name-node'
 
 (put 'cl-struct-js2-xml-end-tag-node 'js2-visitor 'js2-visit-xml-end-tag)
@@ -1866,7 +1986,7 @@ The `kids' field is a lisp list of child content nodes."
                                                        len
                                                        namespace
                                                        kids)))
-  "AST node for an E4X XML name.
+  "AST node for an E4X XML name.  Not currently used.
 Any XML name can be qualified with a namespace, hence the namespace field.
 Further, any E4X name can be comprised of arbitrary JavaScript {} expressions.
 The kids field is a list of `js2-name-node' and `js2-xml-js-expr-node'.
@@ -1895,7 +2015,7 @@ For a simple name, the kids list has exactly one node, a `js2-name-node'."
                                                      len
                                                      name
                                                      attrs)))
-  "AST node for an E4X XML processing instruction."
+  "AST node for an E4X XML processing instruction.  Not currently used."
   name   ; a `js2-xml-name-node'
   attrs) ; a list of `js2-xml-attr-node'
 
@@ -1922,7 +2042,7 @@ For a simple name, the kids list has exactly one node, a `js2-name-node'."
                                                         (pos js2-ts-cursor)
                                                         len
                                                         content)))
-  "AST node for a CDATA escape section."
+  "AST node for a CDATA escape section.  Not currently used."
   content)  ; a `js2-string-node' with node-property 'quote-type 'cdata
 
 (put 'cl-struct-js2-xml-cdata-node 'js2-visitor 'js2-visit-xml-cdata-node)
@@ -1935,29 +2055,6 @@ For a simple name, the kids list has exactly one node, a `js2-name-node'."
   (insert (js2-make-pad i))
   (js2-print-ast (js2-xml-cdata-node-content n)))
 
-(defstruct (js2-xml-js-expr-node
-            (:include js2-xml-node)
-            (:constructor nil)
-            (:constructor make-js2-xml-js-expr-node (&key (type js2-XML)
-                                                          (pos js2-ts-cursor)
-                                                          len
-                                                          expr)))
-  "AST node for an embedded JavaScript {expression} in an E4X literal.
-The start and end fields correspond to the curly-braces."
-  expr)  ; a `js2-expr-node' of some sort
-
-(put 'cl-struct-js2-xml-js-expr-node 'js2-visitor 'js2-visit-xml-js-expr)
-(put 'cl-struct-js2-xml-js-expr-node 'js2-printer 'js2-print-xml-js-expr)
-
-(defun js2-visit-xml-js-expr (n v)
-  (js2-visit-ast (js2-xml-js-expr-node-expr n) v))
-
-(defun js2-print-xml-js-expr (n i)
-  (insert (js2-make-pad i))
-  (insert "{")
-  (js2-print-ast (js2-xml-js-expr-node-expr n) 0)
-  (insert "}"))
-
 (defstruct (js2-xml-attr-node
             (:include js2-xml-node)
             (:constructor nil)
@@ -1968,7 +2065,7 @@ The start and end fields correspond to the curly-braces."
                                                    value
                                                    eq-pos
                                                    quote-type)))
-  "AST node representing a foo='bar' XML attribute value."
+  "AST node representing a foo='bar' XML attribute value.  Not yet used."
   name   ; a `js2-xml-name-node'
   value  ; a `js2-xml-name-node'
   eq-pos ; buffer position of "=" sign
@@ -1998,7 +2095,7 @@ The start and end fields correspond to the curly-braces."
                                                    (pos js2-ts-cursor)
                                                    len
                                                    content)))
-  "AST node for an E4X XML text node."
+  "AST node for an E4X XML text node.  Not currently used."
   content)  ; a lisp list of `js2-string-node' and `js2-xml-js-expr-node'
 
 (put 'cl-struct-js2-xml-text-node 'js2-visitor 'js2-visit-xml-text-node)
@@ -2012,14 +2109,13 @@ The start and end fields correspond to the curly-braces."
   (dolist (kid (js2-xml-text-node-content n))
     (js2-print-ast kid)))
 
-;; Should this be a `js2-comment-node' instead?
 (defstruct (js2-xml-comment-node
             (:include js2-xml-node)
             (:constructor nil)
             (:constructor make-js2-xml-comment-node (&key (type js2-XML)
                                                           (pos js2-ts-cursor)
                                                           len)))
-  "AST node for E4X XML comment.")
+  "AST node for E4X XML comment.  Not currently used.")
 
 (put 'cl-struct-js2-xml-comment-node 'js2-visitor 'js2-visit-none)
 (put 'cl-struct-js2-xml-comment-node 'js2-printer 'js2-print-xml-comment)
@@ -2028,84 +2124,7 @@ The start and end fields correspond to the curly-braces."
   (insert (js2-make-pad i)
           (js2-node-string n)))
 
-(defstruct (js2-xml-dot-query-node
-            (:include js2-infix-node)
-            (:constructor nil)
-            (:constructor make-js2-xml-dot-query-node (&key (type js2-DOTQUERY)
-                                                            (pos js2-ts-cursor)
-                                                            op-pos
-                                                            len
-                                                            left
-                                                            right)))
-  "AST node for an E4X foo.(bar) filter expression.")
-
-(put 'cl-struct-js2-xml-dot-query-node 'js2-visitor 'js2-visit-infix-node)
-(put 'cl-struct-js2-xml-dot-query-node 'js2-printer 'js2-print-xml-dot-query)
-
-(defun js2-print-xml-dot-query (n i)
-  (insert (js2-make-pad i))
-  (js2-print-ast (js2-xml-dot-query-node-left n) 0)
-  (insert ".(")
-  (js2-print-ast (js2-xml-dot-query-node-right n) 0)
-  (insert ")"))
-
-(defstruct (js2-xml-ref-node
-            (:include js2-expr-node)
-            (:constructor nil)
-            (:constructor make-js2-xml-ref-node (&key (type js2-REF_NAME)
-                                                      (pos js2-ts-cursor)
-                                                      op-pos
-                                                      len
-                                                      target
-                                                      namespace
-                                                      propname
-                                                      ref-expr
-                                                      flags)))
-  "AST node for a simple E4X XML attribute or member expression.
-This can take a variety of forms:
-  name, ns::name, *::name, ns::*, *::*
-  @attr, @*, @ns::attr, @ns::*, @*::attr, @*::*
-  @[expr], @ns::[expr], @*::[expr]
-Not all the fields will be set for any given format.
-This node type will be the child of a '.' or '..' operator.
-The target field is the expression preceding the operator.
-The flags field specifies whether it's an attribute access, and
-also whether it was a .. (descendants) operator."
-  target    ; `js2-expr-node'
-  namespace ; a `js2-string-node' representing a prop name or "*"
-  propname  ; a `js2-string-node' representing a prop name or "*"
-  ref-expr  ; if [expr], a `js2-expr-node' for the expression
-  flags     ; member type flags (mostly for runtime execution)
-  op-pos)   ; position of the start of the operator
-
-(put 'cl-struct-js2-xml-ref-node 'js2-visitor 'js2-visit-xml-ref-node)
-(put 'cl-struct-js2-xml-ref-node 'js2-printer 'js2-print-xml-ref-node)
-
-(defun js2-visit-xml-ref-node (n v)
-  (if (js2-xml-ref-node-target n)
-      (js2-visit-ast (js2-xml-ref-node-target n) v))
-  (if (js2-xml-ref-node-namespace n)
-      (js2-visit-ast (js2-xml-ref-node-namespace n) v))
-  (if (js2-xml-ref-node-propname n)
-      (js2-visit-ast (js2-xml-ref-node-propname n) v))
-  (if (js2-xml-ref-node-ref-expr n)
-      (js2-visit-ast (js2-xml-ref-node-ref-expr n) v)))
-
-(defun js2-print-xml-ref-node (n i)
-  (insert (js2-make-pad i))
-  (js2-print-ast (js2-xml-ref-node-target n) 0)
-  (insert (if (flag-set-p (js2-xml-ref-node-flags n)
-                          js2-descendants-flag)
-              ".."
-            ","))
-  (when (js2-xml-ref-node-namespace n)
-    (js2-print-ast (js2-xml-ref-node-namespace n) 0)
-    (insert "::"))
-  (if (js2-xml-ref-node-propname n)
-      (js2-print-ast (js2-xml-ref-node-propname n) 0)
-    (insert "[")
-    (js2-print-ast (js2-xml-ref-node-ref-expr n) 0)
-    (insert "]")))
+;;; Node utilities
 
 (defsubst js2-node-line (n)
   "Fetch the source line number at the start of node N.
@@ -2127,17 +2146,6 @@ If N has no parent pointer, returns N."
     (if parent
         (js2-node-root parent)
       n)))
-
-(defun js2-node-parent-stmt (node)
-  "Return the node's first ancestor that is a statement.
-Returns nil if NODE is a `js2-ast-root'."
-  (let ((parent (js2-node-parent node)))
-    (if (or (null parent)
-            (js2-stmt-node-p parent)
-            (and (js2-function-node-p parent)
-                 (neq (js2-function-node-form parent) 'FUNCTION_EXPRESSION)))
-        parent
-      (js2-node-parent-stmt parent))))
 
 (defun js2-node-position-in-parent (node &optional parent)
   "Return the position of NODE in parent's block-kids list.
@@ -2217,13 +2225,13 @@ Returns nil for zero-length child lists or unsupported nodes."
     cl-struct-js2-for-node
     cl-struct-js2-function-node
     cl-struct-js2-if-node
-    cl-struct-js2-let-expr-node
-    cl-struct-js2-let-stmt-node
+    cl-struct-js2-let-node
     cl-struct-js2-new-node
     cl-struct-js2-paren-node
     cl-struct-js2-switch-node
     cl-struct-js2-while-node
-    cl-struct-js2-with-node)
+    cl-struct-js2-with-node
+    cl-struct-js2-xml-dot-query-node)
   "Node types that can have a parenthesized child expression.
 In particular, nodes that respond to `js2-node-lp' and `js2-node-rp'.")
 
@@ -2258,14 +2266,14 @@ Note that the position may be nil in the case of a parse error."
     (js2-switch-node-lp node))
    ((js2-catch-node-p node)
     (js2-catch-node-lp node))
-   ((js2-let-expr-node-p node)
-    (js2-let-expr-node-lp node))
-   ((js2-let-stmt-node-p node)
-    (js2-let-stmt-node-lp node))
+   ((js2-let-node-p node)
+    (js2-let-node-lp node))
    ((js2-array-comp-node-p node)
     (js2-array-comp-node-lp node))
    ((js2-with-node-p node)
     (js2-with-node-lp node))
+   ((js2-xml-dot-query-node-p node)
+    (1+ (js2-infix-node-op-pos node)))
    (t
     (error "Unsupported node type: %s" (js2-node-short-name node)))))
 
@@ -2293,14 +2301,14 @@ Note that the position may be nil in the case of a parse error."
     (js2-switch-node-rp node))
    ((js2-catch-node-p node)
     (js2-catch-node-rp node))
-   ((js2-let-expr-node-p node)
-    (js2-let-expr-node-rp node))
-   ((js2-let-stmt-node-p node)
-    (js2-let-stmt-node-rp node))
+   ((js2-let-node-p node)
+    (js2-let-node-rp node))
    ((js2-array-comp-node-p node)
     (js2-array-comp-node-rp node))
    ((js2-with-node-p node)
     (js2-with-node-rp node))
+   ((js2-xml-dot-query-node-p node)
+    (1+ (js2-xml-dot-query-node-rp node)))
    (t
     (error "Unsupported node type: %s" (js2-node-short-name node)))))
 
@@ -2565,14 +2573,6 @@ If NODE is the ast-root, returns nil."
       (setq node (js2-node-parent node)))
     node))
 
-(defsubst js2-mode-find-first-stmt (node)
-  "Search upward starting from NODE looking for a statement.
-For purposes of this function, a `js2-function-node' counts."
-  (while (not (or (js2-stmt-node-p node)
-                  (js2-function-node-p node)))
-    (setq node (js2-node-parent node)))
-  node)
-
 (defsubst js2-nested-function-p (node)
   "Return t if NODE is a nested function, or is inside a nested function."
   (js2-function-node-p (if (js2-function-node-p node)
@@ -2639,139 +2639,6 @@ You should use `js2-print-tree' instead of this function."
     ;; TODO:  wedge comments in here somewhere
     (if printer
         (funcall printer node i))))
-
-;; Symbol-table support.  Unfortunately defstruct doesn't support
-;; multiple inheritance, so we use delegation:  any node type that
-;; introduces a new scope (a script, function or let-node) has
-;; an associated scope field containing a `js2-scope', which
-;; we must fetch when doing scope operations.  This scope node has
-;; two "parent" pointers:  its parent scope node, and its associated
-;; AST node.  This lets us climb up the scope chain and then figure
-;; out which AST node we're at.
-
-(defstruct (js2-symbol
-            (:constructor nil)
-            (:constructor make-js2-symbol (decl-type name &optional ast-node)))
-  "A symbol table entry."
-  ;; One of js2-FUNCTION, js2-LP (for parameters), js2-VAR,
-  ;; js2-LET, or js2-CONST
-  decl-type
-  name  ; string
-  ast-node) ; a `js2-node'
-
-(defstruct (js2-scope
-            (:constructor nil)
-            (:constructor make-js2-scope (&key type
-                                               (ast-node nil))))
-  ;; The symbol-table is a LinkedHashMap<String,Symbol> in Rhino.
-  ;; I don't have one of those handy, so I'll use an alist for now.
-  ;; It's as fast as an emacs hashtable for up to about 50 elements,
-  ;; and is much lighter-weight to construct (both CPU and mem).
-  ;; The keys are interned strings (symbols) for faster lookup.
-  ;; Should switch to hybrid alist/hashtable eventually.
-  type      ; the AST token type, e.g. js2-FUNCTION
-  symbols   ; an alist of (symbol . js2-symbol)
-  parent    ; a `js2-scope'
-  ast-node)     ; ast node: a `js2-node'
-
-(defun js2-node-scope (node)
-  "Return the `js2-scope' for NODE.
-Signals an error if NODE is not a scope node."
-  (let ((tt (js2-node-type node)))
-    (cond
-     ;; fake polymorphism
-     ((= tt js2-FUNCTION)
-      (js2-function-node-scope node))
-     ((= tt js2-SCRIPT)
-      (js2-script-node-scope node))
-     ((= tt js2-BLOCK)
-      (js2-block-node-scope node))
-     ((js2-loop-node-p node)
-      (js2-loop-node-scope node))
-     ((= tt js2-LETEXPR)
-      (js2-let-expr-node-scope node))
-     ((= tt js2-LET)
-      (js2-let-stmt-node-scope node))
-     (t
-      (error "%s is not a scope node" (js2-node-short-name node))))))
-
-(defun js2-node-set-scope (node scope)
-  "Set the `js2-scope' for NODE, and return SCOPE.
-Signals an error if NODE is not a scope node."
-  (let ((tt (js2-node-type node)))
-    (cond
-     ;; fake polymorphism
-     ((= tt js2-FUNCTION)
-      (setf (js2-function-node-scope node) scope))
-     ((= tt js2-SCRIPT)
-      (setf (js2-script-node-scope node) scope))
-     ((= tt js2-BLOCK)
-      (setf (js2-block-node-scope node) scope))
-     ((js2-loop-node-p node)
-      (setf (js2-loop-node-scope node) scope))
-     ((= tt js2-LETEXPR)
-      (setf (js2-let-expr-node-scope node) scope))
-     ((= tt js2-LET)
-      (setf (js2-let-stmt-node-scope node) scope))
-     (t
-      (error "%s is not a scope node" (js2-node-short-name node))))
-    scope))
-
-(defconst js2-scope-node-types
-  (list js2-FUNCTION js2-SCRIPT js2-BLOCK js2-LETEXPR js2-LET
-        js2-FOR js2-WHILE js2-DO))
-
-(defsubst js2-scope-node-p (node)
-  "Return t if NODE is a node associated with a `js2-scope'."
-  (memq (js2-node-type node) js2-scope-node-types))
-
-(defun js2-node-get-enclosing-scope (node)
-  "Return the innermost `js2-scope' node surrounding NODE.
-Returns nil if there is no enclosing scope node."
-  (let ((parent (js2-node-parent node)))
-    ;; loop until we have a scope-node parent with a non-nil scope
-    (while (and parent
-                (or (not (js2-scope-node-p parent))
-                    (null (js2-node-scope parent))))
-      (setq parent (js2-node-parent parent)))
-    parent))
-
-(defun js2-get-defining-scope (scope name)
-  "Search up scope chain from SCOPE looking for NAME, a string or symbol.
-Returns `js2-scope' in which NAME is defined, or nil if not found."
-  (let ((sym (if (symbolp name)
-                 name
-               (intern name)))
-        table
-        result
-        (continue t))
-    (while (and scope continue)
-      (if (and (setq table (js2-scope-symbols scope))
-               (assq sym table))
-          (setq continue nil
-                result scope)
-        (setq scope (js2-scope-parent scope))))
-    result))
-
-(defsubst js2-scope-get-symbol (scope name)
-  "Return symbol table entry for NAME in SCOPE.
-NAME can be a string or symbol.   Returns a `js2-symbol' or nil if not found."
-  (and (js2-scope-symbols scope)
-       (cdr (assq (if (symbolp name)
-                      name
-                    (intern name))
-                  (js2-scope-symbols scope)))))
-
-(defsubst js2-scope-put-symbol (scope name symbol)
-  "Enter SYMBOL into symbol-table for SCOPE under NAME.
-NAME can be a lisp symbol or string.  SYMBOL is a `js2-symbol'."
-  (let* ((table (js2-scope-symbols scope))
-         (sym (if (symbolp name) name (intern name)))
-         (entry (assq sym table)))
-    (if entry
-        (setcdr entry symbol)
-      (push (cons sym symbol)
-            (js2-scope-symbols scope)))))
 
 (defconst js2-side-effecting-tokens
   (let ((tokens (make-bool-vector js2-num-tokens nil)))
@@ -2871,20 +2738,14 @@ NAME can be a lisp symbol or string.  SYMBOL is a `js2-symbol'."
        ((= tt js2-HOOK)
         (and (js2-node-has-side-effects (js2-cond-node-true-expr node))
              (js2-node-has-side-effects (js2-cond-node-false-expr node))))
+
+       ((js2-paren-node-p node)
+        (js2-node-has-side-effects (js2-paren-node-expr node)))
+
        ((= tt js2-ERROR) ; avoid cascaded error messages
         nil)
        (t
         (aref js2-side-effecting-tokens tt))))))
-
-(defun js2-expr-at-point (node-or-position)
-  "Returns the outermost parent expression containing NODE-OR-POSITION.
-NODE-OR-POSITION is a `js2-node' or subtype, or a buffer position."
-  (let ((n (if (numberp node-or-position)
-               (js2-node-at-point node-or-position)
-             node-or-position)))
-    (while (js2-expr-node-p (js2-node-parent n))
-      (setq n (js2-node-parent n)))
-    n))
 
 (defun js2-member-expr-leftmost-name (node)
   "For an expr such as foo.bar.baz, return leftmost node foo.
@@ -2902,13 +2763,339 @@ expression whose leftmost target is not a name node, returns nil."
        ((js2-name-node-p node)
         (setq result node))
        ((js2-prop-get-node-p node)
-        (setq node (js2-prop-get-node-target node)))
+        (setq node (js2-prop-get-node-left node)))
        ;; TODO:  handle call-nodes, xml-nodes, others?
        (t
         (setq continue nil))))
     result))
-      
-(defalias #'js2-ancestor-expr #'js2-expr-at-point)
+
+(defconst js2-stmt-node-types
+  (list js2-BLOCK
+        js2-BREAK
+        js2-CONTINUE
+        js2-DEFAULT  ; e4x "default xml namespace" statement
+        js2-DO
+        js2-EXPR_RESULT
+        js2-EXPR_VOID
+        js2-FOR
+        js2-IF
+        js2-RETURN
+        js2-SWITCH
+        js2-THROW
+        js2-TRY
+        js2-WHILE
+        js2-WITH)
+  "Node types that only appear in statement contexts.
+The list does not include nodes that always appear as the child
+of another specific statement type, such as switch-cases,
+catch and finally blocks, and else-clauses.  The list also excludes
+nodes like yield, let and var, which may appear in either expression
+or statement context, and in the latter context always have a
+`js2-expr-stmt-node' parent.  Finally, the list does not include
+functions or scripts, which are treated separately from statements
+by the JavaScript parser and runtime.")
+
+(defun js2-stmt-node-p (node)
+  "Heuristic for figuring out if NODE is a statement.
+Some node types can appear in either an expression context or a
+statement context, e.g. let-nodes, yield-nodes, and var-decl nodes.
+For these node types in a statement context, the parent will be a
+`js2-expr-stmt-node'.
+Functions aren't included in the check."
+  (memq (js2-node-type node) js2-stmt-node-types))
+
+(defsubst js2-mode-find-first-stmt (node)
+  "Search upward starting from NODE looking for a statement.
+For purposes of this function, a `js2-function-node' counts."
+  (while (not (or (js2-stmt-node-p node)
+                  (js2-function-node-p node)))
+    (setq node (js2-node-parent node)))
+  node)
+
+(defun js2-node-parent-stmt (node)
+  "Return the node's first ancestor that is a statement.
+Returns nil if NODE is a `js2-ast-root'.  Note that any expression
+appearing in a statement context will have a parent that is a
+`js2-expr-stmt-node' that will be returned by this function."
+  (let ((parent (js2-node-parent node)))
+    (if (or (null parent)
+            (js2-stmt-node-p parent)
+            (and (js2-function-node-p parent)
+                 (neq (js2-function-node-form parent) 'FUNCTION_EXPRESSION)))
+        parent
+      (js2-node-parent-stmt parent))))
+
+;; Roshan James writes:
+;;  Does consistent-return analysis on the function body when strict mode is
+;;  enabled.
+;;
+;;    function (x) { return (x+1) }
+;;
+;;  is ok, but
+;;
+;;    function (x) { if (x < 0) return (x+1); }
+;;
+;;  is not because the function can potentially return a value when the
+;;  condition is satisfied and if not, the function does not explicitly
+;;  return a value.
+;;
+;;  This extends to checking mismatches such as "return" and "return <value>"
+;;  used in the same function. Warnings are not emitted if inconsistent
+;;  returns exist in code that can be statically shown to be unreachable.
+;;  Ex.
+;;    function (x) { while (true) { ... if (..) { return value } ... } }
+;;
+;;  emits no warning. However if the loop had a break statement, then a
+;;  warning would be emitted.
+;;
+;;  The consistency analysis looks at control structures such as loops, ifs,
+;;  switch, try-catch-finally blocks, examines the reachable code paths and
+;;  warns the user about an inconsistent set of termination possibilities.
+;;
+;;  These flags enumerate the possible ways a statement/function can
+;;  terminate. These flags are used by endCheck() and by the Parser to
+;;  detect inconsistent return usage.
+;;
+;;  END_UNREACHED is reserved for code paths that are assumed to always be
+;;  able to execute (example: throw, continue)
+;;
+;;  END_DROPS_OFF indicates if the statement can transfer control to the
+;;  next one. Statement such as return dont. A compound statement may have
+;;  some branch that drops off control to the next statement.
+;;
+;;  END_RETURNS indicates that the statement can return with no value.
+;;  END_RETURNS_VALUE indicates that the statement can return a value.
+;;
+;;  A compound statement such as
+;;  if (condition) {
+;;    return value;
+;;  }
+;;  Will be detected as (END_DROPS_OFF | END_RETURN_VALUE) by endCheck()
+
+(defconst js2-END_UNREACHED 0)
+(defconst js2-END_DROPS_OFF 1)
+(defconst js2-END_RETURNS 2)
+(defconst js2-END_RETURNS_VALUE 4)
+(defconst js2-END_YIELDS 8)
+
+(defun js2-has-consistent-return-usage (node)
+  "Check that every return usage in a function body is consistent.
+Returns t if the function satisfies strict mode requirement."
+  (let ((n (js2-end-check node)))
+    ;; either it doesn't return a value in any branch...
+    (or (js2-flag-not-set-p n js2-END_RETURNS_VALUE)
+        ;; or it returns a value (or is unreached) at every branch
+        (js2-flag-not-set-p n (logior js2-END_DROPS_OFF
+                                      js2-END_RETURNS
+                                      js2-END_YIELDS)))))
+
+(defun js2-end-check-if (node)
+  "Returns in the then and else blocks must be consistent with each other.
+If there is no else block, then the return statement can fall through.
+Returns logical OR of END_* flags"
+  (let ((th (js2-if-node-then-part node))
+        (el (js2-if-node-else-part node)))
+    (if (null th)
+        js2-END_UNREACHED
+      (logior (js2-end-check th) (if el
+                                     (js2-end-check el)
+                                   js2-END_DROPS_OFF)))))
+
+(defun js2-end-check-switch (node)
+  "Consistency of return statements is checked between the case statements.
+If there is no default, then the switch can fall through. If there is a
+default, we check to see if all code paths in the default return or if
+there is a code path that can fall through.
+Returns logical OR of END_* flags."
+  (let ((rv js2-END_UNREACHED)
+        default-case)
+    ;; examine the cases
+    (catch 'break
+      (dolist (c (js2-switch-node-cases node))
+        (if (js2-case-node-expr c)
+            (js2-set-flag rv (js2-end-check-block c))
+          (setq default-case c)
+          (throw 'break nil))))
+
+    ;; we don't care how the cases drop into each other
+    (js2-clear-flag rv js2-END_DROPS_OFF)
+
+    ;; examine the default
+    (js2-set-flag rv (if default-case
+                         (js2-end-check default-case)
+                       js2-END_DROPS_OFF))
+    rv))
+
+(defun js2-end-check-try (node)
+ "If the block has a finally, return consistency is checked in the
+finally block. If all code paths in the finally return, then the
+returns in the try-catch blocks don't matter. If there is a code path
+that does not return or if there is no finally block, the returns
+of the try and catch blocks are checked for mismatch.
+Returns logical OR of END_* flags."
+ (let ((finally (js2-try-node-finally-block node))
+       rv)
+   ;; check the finally if it exists
+   (setq rv (if finally
+                (js2-end-check (js2-finally-node-body finally))
+              js2-END_DROPS_OFF))
+
+   ;; If the finally block always returns, then none of the returns
+   ;; in the try or catch blocks matter.
+   (when (js2-flag-set-p rv js2-END_DROPS_OFF)
+     (js2-clear-flag rv js2-END_DROPS_OFF)
+
+     ;; examine the try block
+     (js2-set-flag rv (js2-end-check (js2-try-node-try-block node)))
+
+     ;; check each catch block
+     (dolist (cb (js2-try-node-catch-clauses node))
+       (js2-set-flag rv (js2-end-check (js2-catch-node-block cb)))))
+   rv))
+
+(defun js2-end-check-loop (node)
+  "Return statement in the loop body must be consistent. The default
+assumption for any kind of a loop is that it will eventually terminate.
+The only exception is a loop with a constant true condition. Code that
+follows such a loop is examined only if one can statically determine
+that there is a break out of the loop.
+
+    for(... ; ... ; ...) {}
+    for(... in ... ) {}
+    while(...) { }
+    do { } while(...)
+
+Returns logical OR of END_* flags."
+  (let ((rv (js2-end-check (js2-loop-node-body node)))
+        (condition (cond
+                    ((js2-while-node-p node)
+                     (js2-while-node-condition node))
+                     ((js2-do-node-p node)
+                      (js2-do-node-condition node))
+                     ((js2-for-node-p node)
+                      (js2-for-node-condition node)))))
+                      
+    ;; check to see if the loop condition is always true
+    (if (and condition
+             (eq (js2-always-defined-boolean-p condition) 'ALWAYS_TRUE))
+        (js2-clear-flag rv js2-END_DROPS_OFF))
+
+    ;; look for effect of breaks
+    (js2-set-flag rv (js2-node-get-prop node
+                                        'CONTROL_BLOCK_PROP
+                                        js2-END_UNREACHED))
+    rv))
+
+(defun js2-end-check-block (node)
+  "A general block of code is examined statement by statement.
+If any statement (even a compound one) returns in all branches, then
+subsequent statements are not examined.
+Returns logical OR of END_* flags."
+  (let* ((rv js2-END_DROPS_OFF)
+         (kids (js2-block-node-kids node))
+         (n (car kids)))
+    ;; Check each statment.  If the statement can continue onto the next
+    ;; one (i.e. END_DROPS_OFF is set), then check the next statement.
+    (while (and n (js2-flag-set-p rv js2-END_DROPS_OFF))
+      (js2-clear-flag rv js2-END_DROPS_OFF)
+      (js2-set-flag rv (js2-end-check n))
+      (setq kids (cdr kids)
+            n (car kids)))
+    rv))
+
+(defun js2-end-check-label (node)
+  "A labeled statement implies that there may be a break to the label.
+The function processes the labeled statement and then checks the
+CONTROL_BLOCK_PROP property to see if there is ever a break to the
+particular label.
+Returns logical OR of END_* flags."
+  (let ((rv (js2-end-check (js2-labeled-stmt-node-stmt node))))
+    (logior rv (js2-node-get-prop node
+                                  'CONTROL_BLOCK_PROP
+                                  js2-END_UNREACHED))))
+
+(defun js2-end-check-break (node)
+  "When a break is encountered annotate the statement being broken
+out of by setting its CONTROL_BLOCK_PROP property.
+Returns logical OR of END_* flags."
+  (and (js2-break-node-target node)
+       (js2-node-set-prop (js2-break-node-target node)
+                          'CONTROL_BLOCK_PROP
+                          js2-END_DROPS_OFF))
+  js2-END_UNREACHED)
+
+(defun js2-end-check (node)
+  "Examine the body of a function, doing a basic reachability analysis.
+Returns a combination of flags END_* flags that indicate
+how the function execution can terminate. These constitute only the
+pessimistic set of termination conditions. It is possible that at
+runtime certain code paths will never be actually taken. Hence this
+analysis will flag errors in cases where there may not be errors.
+Returns logical OR of END_* flags"
+  (let (kid)
+    (cond
+     ((js2-break-node-p node)
+      (js2-end-check-break node))
+
+     ((js2-expr-stmt-node-p node)
+      (if (setq kid (js2-expr-stmt-node-expr node))
+          (js2-end-check kid)
+        js2-END_DROPS_OFF))
+
+     ((or (js2-continue-node-p node)
+          (js2-throw-node-p node))
+      js2-END_UNREACHED)
+
+     ((js2-return-node-p node)
+      (if (setq kid (js2-return-node-retval node))
+          js2-END_RETURNS_VALUE
+        js2-END_RETURNS))
+
+     ((js2-loop-node-p node)
+      (js2-end-check-loop node))
+
+     ((js2-switch-node-p node)
+      (js2-end-check-switch node))
+
+     ((js2-labeled-stmt-node-p node)
+      (js2-end-check-label node))
+
+     ((js2-if-node-p node)
+      (js2-end-check-if node))
+
+     ((js2-try-node-p node)
+      (js2-end-check-try node))
+
+     ((js2-block-node-p node)
+      (if (null (js2-block-node-kids node))
+          js2-END_DROPS_OFF
+        (js2-end-check-block node)))
+
+     ((js2-yield-node-p node)
+      js2-END_YIELDS)
+
+     (t
+      js2-END_DROPS_OFF))))
+
+(defun js2-always-defined-boolean-p (node)
+  "Check if NODE always evaluates to true or false in boolean context.
+Returns 'ALWAYS_TRUE, 'ALWAYS_FALSE, or nil if it's neither always true
+nor always false."
+  (let ((tt (js2-node-type node))
+        num)
+    (cond
+     ((or (= tt js2-FALSE) (= tt js2-NULL))
+      'ALWAYS_FALSE)
+     ((= tt js2-TRUE)
+      'ALWAYS_TRUE)
+     ((= tt js2-NUMBER)
+      (setq num (js2-number-node-num-value node))
+      (if (and (not (eq num 0.0e+NaN))
+               (not (zerop num)))
+          'ALWAYS_TRUE
+        'ALWAYS_FALSE))
+     (t
+      nil))))
 
 (provide 'js2-ast)
 

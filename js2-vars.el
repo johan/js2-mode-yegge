@@ -279,9 +279,6 @@ as of Rhino version 1.7R2."
 (defcustom js2-allow-member-expr-as-function-name nil
   "Non-nil to support experimental Rhino syntax for function names.
 
-NOTE:  this is currently a placeholder, and `js2-mode' does not yet
-support this syntax.
-
 Rhino supports an experimental syntax configured via the Rhino Context
 setting `allowMemberExprAsFunctionName'.  The experimental syntax is:
 
@@ -660,7 +657,8 @@ parser as a frontend to an interpreter or byte compiler.")
 
 ;; There's a compileFunction method in Context.java - may need it.
 (defvar js2-called-by-compile-function nil
-  "True if `js2-parse' was called by `js2-compile-function'.")
+  "True if `js2-parse' was called by `js2-compile-function'.
+Will only be used when we finish implementing the interpreter.")
 (make-variable-buffer-local 'js2-called-by-compile-function)
 
 ;; SKIP:  ts  (we just call `js2-init-scanner' and use its vars)
@@ -711,6 +709,18 @@ parser as a frontend to an interpreter or byte compiler.")
 (defvar js2-end-flags 0)
 (make-variable-buffer-local 'js2-end-flags)
 
+;;; end of per function variables
+
+;; Without 2-token lookahead, labels are a problem.
+;; These vars store the token info of the last matched name,
+;; iff it wasn't the last matched token.  Only valid in some contexts.
+(defvar js2-prev-name-token-start nil)
+(defvar js2-prev-name-token-string nil)
+
+(defsubst js2-save-name-token-data (pos name)
+  (setq js2-prev-name-token-start pos
+        js2-prev-name-token-string name))
+
 ;; These flags enumerate the possible ways a statement/function can
 ;; terminate. These flags are used by endCheck() and by the Parser to
 ;; detect inconsistent return usage.
@@ -759,8 +769,6 @@ parser as a frontend to an interpreter or byte compiler.")
 
 (defsubst js2-get-next-temp-name ()
   (format "$%d" (incf js2-temp-name-counter)))
-
-;;; end of per function variables
 
 (defvar js2-parse-interruptable-p t
   "Set this to nil to force parse to continue until finished.

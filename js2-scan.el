@@ -910,114 +910,121 @@ corresponding number.  Otherwise return -1."
 (defun js2-get-next-xml-token ()
   (setq js2-ts-string-buffer nil  ; for recording the XML
         js2-token-beg js2-ts-cursor)
-  (loop for c = (js2-get-char)
-        while (/= c js2-EOF_CHAR)
-        do
-        (if js2-ts-xml-is-tag-content
-            (progn
-              (case c
-                (?>
-                 (js2-add-to-string c)
-                 (setq js2-ts-xml-is-tag-content nil
-                       js2-ts-is-xml-attribute nil))
-                (?/
-                 (js2-add-to-string c)
-                 (when (eq ?> (js2-peek-char))
-                   (setq c (js2-get-char))
-                   (js2-add-to-string c)
-                   (setq js2-ts-xml-is-tag-content nil)
-                   (decf js2-ts-xml-open-tags-count)))
-                (?{
-                 (js2-unget-char)
-                 (setq js2-ts-string (js2-get-string-from-buffer))
-                 (return js2-XML))
-                ((?\' ?\")
-                 (js2-add-to-string c)
-                 (unless (js2-read-quoted-string c)
-                   (return js2-ERROR)))
-                (?=
-                 (js2-add-to-string c)
-                 (setq js2-ts-is-xml-attribute t))
-                ((? ?\t ?\r ?\n)
-                 (js2-add-to-string c))
-                (t
-                 (js2-add-to-string c)
-                 (setq js2-ts-is-xml-attribute nil)))
-              (when (and (not js2-ts-xml-is-tag-content)
-                         (zerop js2-ts-xml-open-tags-count))
-                (setq js2-ts-string (js2-get-string-from-buffer))
-                (return js2-XMLEND)))
-          ;; else not tag content
-          (case c
-            (?<
-             (js2-add-to-string c)
-             (setq c (js2-peek-char))
-             (case c
-               (?!
-                (setq c (js2-get-char))  ;; skip !
-                (js2-add-to-string c)
-                (setq c (js2-peek-char))
-                (case c
-                  (?-
-                   (setq c (js2-get-char))  ;; skip -
-                   (js2-add-to-string c)
-                   (if (eq c ?-)
-                       (progn
-                         (js2-add-to-string c)
-                         (unless (js2-read-xml-comment)
-                           (return js2-ERROR)))
-                     (js2-xml-discard-string)
-                     (return js2-ERROR)))
-                  (?\[
-                   (setq c (js2-get-char))  ;; skip [
-                   (js2-add-to-string c)
-                   (if (and (= (js2-get-char) ?C)
-                            (= (js2-get-char) ?D)
-                            (= (js2-get-char) ?A)
-                            (= (js2-get-char) ?T)
-                            (= (js2-get-char) ?A)
-                            (= (js2-get-char) ?\[))
-                       (progn
-                         (js2-add-to-string ?C)
-                         (js2-add-to-string ?D)
-                         (js2-add-to-string ?A)
-                         (js2-add-to-string ?T)
-                         (js2-add-to-string ?A)
-                         (js2-add-to-string ?\[)
-                         (unless (js2-read-cdata)
-                           (return js2-ERROR)))
-                     (js2-xml-discard-string)
-                     (return js2-ERROR)))
-                  (t
-                   (unless (js2-read-entity)
-                     (return js2-ERROR)))))
-               (??
-                (setq c (js2-get-char))  ;; skip ?
-                (js2-add-to-string c)
-                (unless (js2-read-PI)
-                  (return js2-ERROR)))
-               (?/
-                ;; end tag
-                (setq c (js2-get-char))  ;; skip /
-                (js2-add-to-string c)
-                (when (zerop js2-ts-xml-open-tags-count)
-                  (js2-xml-discard-string)
-                  (return js2-ERROR))
-                (setq js2-ts-xml-is-tag-content t)
-                (decf js2-ts-xml-open-tags-count))
-               (t
-                ;; start tag
-                (setq js2-ts-xml-is-tag-content t)
-                (incf js2-ts-xml-open-tags-count))))
-            (?{
-             (js2-unget-char)
-             (setq js2-ts-string (js2-get-string-from-buffer))
-             (return js2-XML))
-            (t
-             (js2-add-to-string c))))
-        finally  ; seemingly not triggered?
-        (setq js2-token-end js2-ts-cursor))) ; doesn't affect return value
+  (let (c result)
+    (setq result
+          (catch 'return
+            (while t
+              (setq c (js2-get-char))
+              (cond
+               ((= c js2-EOF_CHAR)
+                (throw 'return js2-ERROR))
 
+               (js2-ts-xml-is-tag-content
+                (case c
+                  (?>
+                   (js2-add-to-string c)
+                   (setq js2-ts-xml-is-tag-content nil
+                         js2-ts-is-xml-attribute nil))
+                  (?/
+                   (js2-add-to-string c)
+                   (when (eq ?> (js2-peek-char))
+                     (setq c (js2-get-char))
+                     (js2-add-to-string c)
+                     (setq js2-ts-xml-is-tag-content nil)
+                     (decf js2-ts-xml-open-tags-count)))
+                  (?{
+                   (js2-unget-char)
+                   (setq js2-ts-string (js2-get-string-from-buffer))
+                   (throw 'return js2-XML))
+                  ((?\' ?\")
+                   (js2-add-to-string c)
+                   (unless (js2-read-quoted-string c)
+                     (throw 'return js2-ERROR)))
+                  (?=
+                   (js2-add-to-string c)
+                   (setq js2-ts-is-xml-attribute t))
+                  ((? ?\t ?\r ?\n)
+                   (js2-add-to-string c))
+                  (t
+                   (js2-add-to-string c)
+                   (setq js2-ts-is-xml-attribute nil)))
+                (when (and (not js2-ts-xml-is-tag-content)
+                           (zerop js2-ts-xml-open-tags-count))
+                  (setq js2-ts-string (js2-get-string-from-buffer))
+                  (throw 'return js2-XMLEND)))
+
+               (t
+                ;; else not tag content
+                (case c
+                  (?<
+                   (js2-add-to-string c)
+                   (setq c (js2-peek-char))
+                   (case c
+                     (?!
+                      (setq c (js2-get-char)) ;; skip !
+                      (js2-add-to-string c)
+                      (setq c (js2-peek-char))
+                      (case c
+                        (?-
+                         (setq c (js2-get-char)) ;; skip -
+                         (js2-add-to-string c)
+                         (if (eq c ?-)
+                             (progn
+                               (js2-add-to-string c)
+                               (unless (js2-read-xml-comment)
+                                 (throw 'return js2-ERROR)))
+                           (js2-xml-discard-string)
+                           (throw 'return js2-ERROR)))
+                        (?\[
+                         (setq c (js2-get-char)) ;; skip [
+                         (js2-add-to-string c)
+                         (if (and (= (js2-get-char) ?C)
+                                  (= (js2-get-char) ?D)
+                                  (= (js2-get-char) ?A)
+                                  (= (js2-get-char) ?T)
+                                  (= (js2-get-char) ?A)
+                                  (= (js2-get-char) ?\[))
+                             (progn
+                               (js2-add-to-string ?C)
+                               (js2-add-to-string ?D)
+                               (js2-add-to-string ?A)
+                               (js2-add-to-string ?T)
+                               (js2-add-to-string ?A)
+                               (js2-add-to-string ?\[)
+                               (unless (js2-read-cdata)
+                                 (throw 'return js2-ERROR)))
+                           (js2-xml-discard-string)
+                           (throw 'return js2-ERROR)))
+                        (t
+                         (unless (js2-read-entity)
+                           (throw 'return js2-ERROR)))))
+                     (??
+                      (setq c (js2-get-char)) ;; skip ?
+                      (js2-add-to-string c)
+                      (unless (js2-read-PI)
+                        (throw 'return js2-ERROR)))
+                     (?/
+                      ;; end tag
+                      (setq c (js2-get-char)) ;; skip /
+                      (js2-add-to-string c)
+                      (when (zerop js2-ts-xml-open-tags-count)
+                        (js2-xml-discard-string)
+                        (throw 'return js2-ERROR))
+                      (setq js2-ts-xml-is-tag-content t)
+                      (decf js2-ts-xml-open-tags-count))
+                     (t
+                      ;; start tag
+                      (setq js2-ts-xml-is-tag-content t)
+                      (incf js2-ts-xml-open-tags-count))))
+                  (?{
+                   (js2-unget-char)
+                   (setq js2-ts-string (js2-get-string-from-buffer))
+                   (throw 'return js2-XML))
+                  (t
+                   (js2-add-to-string c))))))))
+    (setq js2-token-end js2-ts-cursor)
+    result))
+        
 (defun js2-read-quoted-string (quote)
   (let (c)
     (catch 'return

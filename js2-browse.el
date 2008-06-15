@@ -171,8 +171,8 @@ if the index expression is a name, a string, or a positive integer."
       (list node))
      ;; foo.bar.baz is parenthesized as (foo.bar).baz => right operand is a leaf
      ((js2-prop-get-node-p node)  ; includes elem-get nodes
-      (setq left (js2-prop-get-node-target node)
-            right (js2-prop-get-node-prop node))
+      (setq left (js2-prop-get-node-left node)
+            right (js2-prop-get-node-right node))
       (if (and (or (js2-prop-get-node-p left)     ; left == foo.bar
                    (js2-name-node-p left)
                    (js2-this-node-p left))        ; or left == foo
@@ -226,9 +226,8 @@ that it's an external variable, which must also be in the top-level scope."
       nil)
      ((null this-scope)
       t)
-     ((setq defining-scope (js2-get-defining-scope
-                            (js2-node-scope this-scope) name))
-      (js2-ast-root-p (js2-scope-ast-node defining-scope)))
+     ((setq defining-scope (js2-get-defining-scope this-scope name))
+      (js2-ast-root-p defining-scope))
      (t t))))
 
 (defun js2-browse-postprocess-chains (chains)
@@ -371,9 +370,10 @@ e.g. key 'c' in the example above."
 
 (defun js2-build-imenu-index ()
   "Turn `js2-imenu-recorder' into an imenu data structure."
-  (let* ((chains (js2-browse-postprocess-chains js2-imenu-recorder))
-         (result (js2-build-alist-trie chains nil)))
-    (js2-flatten-trie result)))
+  (unless (eq js2-imenu-recorder 'empty)
+    (let* ((chains (js2-browse-postprocess-chains js2-imenu-recorder))
+           (result (js2-build-alist-trie chains nil)))
+      (js2-flatten-trie result))))
 
 (defun js2-test-print-chains (chains)
   "Print a list of qname chains.

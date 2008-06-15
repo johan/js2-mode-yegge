@@ -227,15 +227,15 @@ The variable `js2-highlight-level' governs this highighting."
           ;; highlight function call if expr is a prop-get node
           ;; or a plain name (i.e. unqualified function call)
           (and (setq call-p (js2-call-node-p node))
-               (setq callee (js2-call-node-expr node)) ; separate setq!
+               (setq callee (js2-call-node-target node)) ; separate setq!
                (or (js2-prop-get-node-p callee)
                    (js2-name-node-p callee))))
       (setq parent node
             node (if call-p callee node))
       (if (and call-p (js2-name-node-p callee))
           (setq prop callee)
-        (setq target (js2-prop-get-node-target node)
-              prop (js2-prop-get-node-prop node)))
+        (setq target (js2-prop-get-node-left node)
+              prop (js2-prop-get-node-right node)))
       (cond
        ((js2-name-node-p target)
         (if (js2-name-node-p prop)
@@ -246,6 +246,21 @@ The variable `js2-highlight-level' governs this highighting."
        ((js2-name-node-p prop)
         ;; case 2c:  complex target, simple name, e.g. x[y].bar
         (js2-parse-highlight-prop-get parent target prop call-p)))))))
+
+(defun js2-parse-highlight-member-expr-fn-name (expr)
+  "Highlight the `baz' in function foo.bar.baz(args) {...}.
+This is experimental Rhino syntax.  EXPR is the foo.bar.baz member expr.
+We currently only handle the case where the last component is a prop-get
+of a simple name.  Called before EXPR has a parent node."
+  (let (pos
+        (name (and (js2-prop-get-node-p expr)
+                   (js2-prop-get-node-right expr))))
+    (when (js2-name-node-p name)
+      (js2-set-face (setq pos (+ (js2-node-pos expr)  ; parent is absolute
+                                 (js2-node-pos name)))
+                    (+ pos (js2-node-len name))
+                    'font-lock-function-name-face
+                    'record))))
 
 ;; source:  http://jsdoc.sourceforge.net/
 ;; Note - this syntax is for Google's enhanced jsdoc parser that
@@ -358,8 +373,8 @@ The variable `js2-highlight-level' governs this highighting."
 
        ;; foo.bar.baz = function() {...}
        ((and (js2-prop-get-node-p left)
-             (js2-name-node-p (js2-prop-get-node-prop left)))
-        (setq name (js2-prop-get-node-prop left))))
+             (js2-name-node-p (js2-prop-get-node-right left)))
+        (setq name (js2-prop-get-node-right left))))
 
       (when name
         (js2-set-face (setq leftpos (js2-node-abs-pos name))

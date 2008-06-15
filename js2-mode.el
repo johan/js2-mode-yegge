@@ -24,6 +24,7 @@
 ;; This JavaScript editing mode supports:
 ;;
 ;;  - the full JavaScript language through version 1.7
+;;  - support for most Rhino and SpiderMonkey extensions from 1.5 to 1.7
 ;;  - accurate syntax highlighting using a recursive-descent parser
 ;;  - syntax-error and strict-mode warning reporting
 ;;  - "bouncing" line indentation to choose among alternate indentation points
@@ -70,8 +71,10 @@
 ;; indentation.  The current compromise is that the tab key lets you cycle among
 ;; various likely indentation points, similar to the behavior of python-mode.
 ;;
-;; This mode does not yet work with mmm-mode ("multiple major modes" mode),
-;; although it could possibly be made to do so with some effort.
+;; This mode does not yet work with "multi-mode" modes such as mmm-mode
+;; and mumamo, although it could possibly be made to do so with some effort.
+;; This means that js2-mode is currently only useful for editing JavaScript
+;; files, and not for editing JavaScript within <script> tags or templates.
 ;;
 ;; This code is part of a larger project, in progress, to enable writing
 ;; Emacs customizations in JavaScript.
@@ -80,10 +83,12 @@
 ;; at http://code.google.com/p/js2-mode/issues
 
 ;; TODO:
+;;  - add unreachable-code warning (error?) using the inconsistent-return analysis
+;;  - labeled stmt length is now 1
+;;  - "anonymous function does not always return a value" - use getter/setter name
+;;  - extend js2-missing-semi-one-line-override to handle catch (e) {return x}
 ;;  - set a text prop on autoinserted delimiters and don't biff user-entered ones
 ;;  - when inserting magic curlies, look for matching close-curly before inserting
-;;  - clean up xml member-expr parsing
-;;  - add in remaining Ecma strict-mode warnings
 ;;  - get more use out of the symbol table:
 ;;    - jump to declaration (put hyperlinks on all non-decl var usages?)
 ;;    - rename variable/function
@@ -387,6 +392,7 @@ This ensures that the counts and `next-error' are correct."
       (js2-mode-show-warn-or-err e 'js2-warning-face))))
 
 (defun js2-echo-error (old-point new-point)
+  "Called by point-motion hooks."
   (let ((msg (get-text-property new-point 'help-echo)))
     (if msg
         (message msg))))
@@ -394,6 +400,7 @@ This ensures that the counts and `next-error' are correct."
 (defalias #'js2-echo-help #'js2-echo-error)
 
 (defun js2-enter-key ()
+  "Handle user pressing the Enter key."
   (interactive)
   (let ((parse-status (save-excursion
                         (parse-partial-sexp (point-min) (point)))))
@@ -1112,19 +1119,21 @@ RESET means start over from the beginning."
                   (append (js2-ast-root-errors js2-mode-ast)
                           (js2-ast-root-warnings js2-mode-ast))))
            (continue t)
-           (here (point))
+           (start (point))
            (count (or arg 1))
            (backward (minusp count))
            (sorter (if backward '> '<))
            (stopper (if backward '< '>))
            (count (abs count))
+           all-errs
            err)
       ;; sort by start position
       (setq errs (sort errs (lambda (e1 e2)
-                              (funcall sorter (second e1) (second e2)))))
-      ;; find nth error with pos > here
+                              (funcall sorter (second e1) (second e2))))
+            all-errs errs)
+      ;; find nth error with pos > start
       (while (and errs continue)
-        (when (funcall stopper (cadar errs) here)
+        (when (funcall stopper (cadar errs) start)
           (setq err (car errs))
           (if (zerop (decf count))
               (setq continue nil)))
@@ -1132,7 +1141,10 @@ RESET means start over from the beginning."
       (if err
           (goto-char (second err))
         ;; wrap around to first error
-        (js2-next-error 1 t)))))
+        (goto-char (second (car all-errs)))
+        ;; if we were already on it, echo msg again
+        (if (= (point) start)
+            (js2-echo-error (point) (point)))))))
 
 (defun js2-mouse-3 ()
   "Make right-click move the point to the click location.
@@ -1266,7 +1278,7 @@ it marks the next defun after the ones already marked."
 (defun js2-narrow-to-defun ()
   "Narrow to the function enclosing point."
   (interactive)
-  (let* ((node (js2-node-at-point (point) t)) ;; skip comments
+  (let* ((node (js2-node-at-point (point) t))  ; skip comments
          (fn (if (js2-script-node-p node)
                  node
                (js2-mode-find-enclosing-fn node)))
