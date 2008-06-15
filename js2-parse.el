@@ -273,7 +273,7 @@ Returns t on match, nil if no match."
     (setf (js2-labeled-stmt-node-stmt js2-labeled-stmt) loop-node
           (js2-label-node-loop (car (js2-labeled-stmt-node-labels
                                      js2-labeled-stmt))) loop-node)))
-          
+
 (defsubst js2-exit-loop ()
   (pop js2-loop-set)
   (pop js2-loop-and-switch-set)
@@ -541,7 +541,7 @@ Last token scanned is the close-curly for the function body."
           (js2-node-add-children fn-node name))
 
       (js2-check-inconsistent-return-warning fn-node name)
-                                  
+
       ;; Function expressions define a name only in the body of the
       ;; function, and only if not hidden by a parameter name
       (if (and name
@@ -2160,8 +2160,7 @@ Last token parsed must be `js2-RB'."
         (js2-save-name-token-data js2-token-beg "*")
         (setq ref (js2-parse-property-name nil "*" member-type-flags)))
 
-       ;; handles: '@attr', '@ns::attr', '@ns::*', '@ns::*',
-       ;;          '@::attr', '@::*', '@*', '@*::attr', '@*::*'
+       ;; handles: '@attr', '@ns::attr', '@ns::*', '@ns::[expr]', etc.
        ((= tt js2-XMLATTR)
         (setq result (js2-parse-attribute-access)))
 
@@ -2172,18 +2171,19 @@ Last token parsed must be `js2-RB'."
           (setf (js2-node-len result) (- (js2-node-end ref)
                                          (js2-node-pos result))
                 (js2-infix-node-right result) ref))
-      (js2-node-add-children result
-                             (js2-infix-node-left result)
-                              (js2-infix-node-right result))
+      (if (js2-infix-node-p result)
+          (js2-node-add-children result
+                                 (js2-infix-node-left result)
+                                 (js2-infix-node-right result)))
       result)))
 
 (defun js2-parse-attribute-access ()
   "Parse an E4X XML attribute expression.
 This includes expressions of the forms:
 
-  @attr      @ns::attr     @ns::*    @ns::*
-  @*         @*::attr      @*::*     @ns::[expr]
-  @[expr]    @*::[expr]
+  @attr      @ns::attr     @ns::*
+  @*         @*::attr      @*::*
+  @[expr]    @*::[expr]    @ns::[expr]
 
 Called if we peeked an '@' token."
   (let ((tt (js2-next-token))
@@ -2223,7 +2223,8 @@ operator, or the name is followed by ::.  For a plain name, returns a
         (name (js2-create-name-node t js2-current-token))
         ns
         tt
-        ref)
+        ref
+        pn)
     (catch 'return
       (when (js2-match-token js2-COLONCOLON)
         (setq ns name
@@ -2235,12 +2236,12 @@ operator, or the name is followed by ::.  For a plain name, returns a
           (setq name (js2-create-name-node)))
 
          ;; handles name::*
-         ((= tt js2-MUL)                 
+         ((= tt js2-MUL)
           (js2-save-name-token-data js2-token-beg "*")
           (setq name (js2-create-name-node)))
 
          ;; handles name::[expr]
-         ((= tt js2-LB)                  
+         ((= tt js2-LB)
           (throw 'return (js2-parse-xml-elem-ref at-pos ns colon-pos)))
 
          (t
@@ -2248,11 +2249,14 @@ operator, or the name is followed by ::.  For a plain name, returns a
 
       (if (and (null ns) (zerop member-type-flags))
           name
-        (make-js2-xml-prop-ref-node :pos pos
-                                    :len (- (js2-node-end name) pos)
-                                    :at-pos at-pos
-                                    :colon-pos colon-pos
-                                    :propname name)))))
+        (prog1
+            (setq pn
+                  (make-js2-xml-prop-ref-node :pos pos
+                                              :len (- (js2-node-end name) pos)
+                                              :at-pos at-pos
+                                              :colon-pos colon-pos
+                                              :propname name))
+          (js2-node-add-children pn name))))))
 
 (defun js2-parse-xml-elem-ref (at-pos &optional namespace colon-pos)
   "Parse the [expr] portion of an xml element reference.
@@ -2261,18 +2265,22 @@ For instance, @[expr], @*::[expr], or ns::[expr]."
          (pos (or at-pos lb))
          rb
          (expr (js2-parse-expr))
-         (end (js2-node-end expr)))
+         (end (js2-node-end expr))
+         pn)
     (if (js2-must-match js2-RB "msg.no.bracket.index")
         (setq rb js2-token-beg
               end js2-token-end))
-    (make-js2-xml-elem-ref-node :pos pos
-                                :len (- end pos)
-                                :namespace namespace
-                                :colon-pos colon-pos
-                                :at-pos at-pos
-                                :expr expr
-                                :lb (js2-relpos lb pos)
-                                :rb (js2-relpos rb pos))))
+    (prog1
+        (setq pn
+              (make-js2-xml-elem-ref-node :pos pos
+                                          :len (- end pos)
+                                          :namespace namespace
+                                          :colon-pos colon-pos
+                                          :at-pos at-pos
+                                          :expr expr
+                                          :lb (js2-relpos lb pos)
+                                          :rb (js2-relpos rb pos)))
+      (js2-node-add-children pn namespace expr))))
 
 (defun js2-parse-primary-expr ()
   "Parses a literal (leaf) expression of some sort.
@@ -2616,7 +2624,7 @@ Last token peeked should be the initial FOR."
           (js2-record-face 'font-lock-function-name-face)      ; for peeked name
           (setq name (js2-create-name-node)) ; discard get/set & use peeked name
           (js2-parse-getter-setter-prop ppos name (string= prop "get")))
-                                        
+
       ;; regular prop
       (prog1
           (setq expr (js2-parse-plain-property (or string-prop name)))
@@ -2651,7 +2659,7 @@ PROP is the node representing the property:  a number, name or string."
 JavaScript syntax is:
 
   { get foo() {...}, set foo(x) {...} }
-    
+
 POS is the start position of the `get' or `set' keyword.
 PROP is the `js2-name-node' representing the property name.
 GET-P is non-nil if the keyword was `get'."

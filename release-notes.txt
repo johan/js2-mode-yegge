@@ -245,7 +245,9 @@ API changes:
   * fixed various problems with computing node bound
   * fixed problem where //-comments were added twice each to the AST
 
-=Release notes for mmm dd, yyyy, js2-yyyymmdd.el:=
+=Release notes for Jun 15, 2008, js2-20080615.el:=
+
+This release is a major overhaul of the parser and syntax tree, to bring it up to date with (not yet released) Rhino changes.  It fixes various bugs and adds some new features.  It also has the potential to have introduced new bugs, so please let me know if you find anything that's broken since the last release.
 
 New features:
 
