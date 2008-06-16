@@ -240,7 +240,7 @@ comprehensions."
   :type 'integer
   :group 'js2-mode)
 
-(defcustom js2-allow-keywords-as-property-names nil
+(defcustom js2-allow-keywords-as-property-names t
   "If non-nil, you can use JavaScript keywords as object property names.
 Examples:
 

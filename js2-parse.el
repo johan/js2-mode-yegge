@@ -1602,10 +1602,6 @@ If NODE is non-nil, it is the AST node associated with the symbol."
          op-pos)
     (while (js2-match-token js2-COMMA)
       (setq op-pos (- js2-token-beg pos))  ; relative
-      (unless (js2-node-has-side-effects pn)
-        (js2-add-strict-warning "msg.no.side.effects" nil
-                                pos
-                                (js2-node-end pn)))
       (if (= (js2-peek-token) js2-YIELD)
           (js2-report-error "msg.yield.parenthesized"))
       (setq right (js2-parse-assign-expr)

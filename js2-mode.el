@@ -164,7 +164,7 @@
                  font-lock-unfontify-region-function))
     (set (make-local-variable var) (lambda (&rest args) t)))
 
-  ;; Don't let font-lock mess up our string/comment highlighting.
+  ;; Don't let font-lock do syntactic (string/comment) fontification.
   (set (make-local-variable #'font-lock-syntactic-face-function)
        (lambda (state) nil))
 
@@ -206,6 +206,7 @@
   (when js2-mode-node-overlay
     (delete-overlay js2-mode-node-overlay)
     (setq js2-mode-node-overlay nil))
+  (js2-remove-overlays)
   (setq js2-mode-ast nil)
   (remove-hook 'change-major-mode-hook #'js2-mode-exit t)
   (remove-from-invisibility-spec '(js2-outline . t))
@@ -236,6 +237,22 @@ You can disable this by customizing `js2-cleanup-whitespace'."
   (js2-mode-hide-overlay)
   (js2-mode-reset-timer))
 
+(defun js2-mode-run-font-lock ()
+  "Run `font-lock-fontify-buffer' after parsing/highlighting.
+This is intended to allow modes that install their own font-lock keywords
+to work with js2-mode.  In practice it never seems to work for long.
+Hopefully the Emacs maintainers can help figure out a way to make it work."
+  (when (and (boundp 'font-lock-keywords)
+             font-lock-keywords
+             (boundp 'font-lock-mode)
+             font-lock-mode)
+    ;; TODO:  font-lock and jit-lock really really REALLY don't want to
+    ;; play nicely with js2-mode.  They go out of their way to fail to
+    ;; provide any option for saying "look, fontify the goddamn buffer
+    ;; with just the keywords already".  Argh.
+    (setq font-lock-defaults (list font-lock-keywords 'keywords-only))
+    (font-lock-default-fontify-buffer)))
+
 (defun js2-reparse (&optional force)
   "Re-parse current buffer after user finishes some data entry.
 If we get any user input while parsing, including cursor motion,
@@ -248,6 +265,9 @@ buffer will only rebuild its `js2-mode-ast' if the buffer is dirty."
       (setq js2-mode-parsing t)
       (unwind-protect
           (when (or js2-mode-buffer-dirty-p force)
+            ;; Remove the 'fontified property so font-lock-fontify-buffer works
+            (set-text-properties (point-min) (point-max) nil)
+            (js2-remove-overlays)
             (js2-with-unmodifying-text-property-changes
               (setq js2-mode-buffer-dirty-p nil
                     js2-mode-fontifications nil
@@ -263,11 +283,7 @@ buffer will only rebuild its `js2-mode-ast' if the buffer is dirty."
                              (js2-mode-remove-suppressed-warnings)
                              (js2-mode-show-warnings)
                              (js2-mode-show-errors)
-                             (if (and (boundp 'font-lock-keywords)
-                                      font-lock-keywords
-                                      (boundp 'font-lock-mode)
-                                      font-lock-mode)
-                                 (font-lock-fontify-buffer))
+                             (js2-mode-run-font-lock)  ; note:  doesn't work
                              (if (>= js2-highlight-level 1)
                                  (js2-highlight-jsdoc js2-mode-ast))
                              nil))))
@@ -327,16 +343,29 @@ buffer will only rebuild its `js2-mode-ast' if the buffer is dirty."
   (js2-mode))
 
 (defsubst js2-mode-show-warn-or-err (e face)
+  "Highlight a warning or error E with FACE.
+E is a list of ((MSG-KEY MSG-ARG) BEG END)."
   (let* ((key (first e))
          (beg (second e))
          (end (+ beg (third e)))
          ;; Don't inadvertently go out of bounds.
          (beg (max (point-min) (min beg (point-max))))
          (end (max (point-min) (min end (point-max))))
-         (js2-highlight-level 3))    ; so js2-set-face is sure to fire
-    (js2-set-face beg end face)
+         (js2-highlight-level 3)    ; so js2-set-face is sure to fire
+         (ovl (make-overlay beg end)))
+    (overlay-put ovl 'face face)
+    (overlay-put ovl 'js2 t)
     (put-text-property beg end 'help-echo (js2-get-msg key))
     (put-text-property beg end 'point-entered #'js2-echo-error)))
+
+(defun js2-remove-overlays ()
+  "Remove overlays from buffer that have a `js2' property."
+  (let ((beg (point-min))
+        (end (point-max)))
+    (save-excursion
+      (dolist (o (overlays-in beg end))
+        (when (overlay-get o 'js2)
+          (delete-overlay o))))))
 
 (defun js2-mode-fontify-regions ()
   "Apply fontifications recorded during parsing."

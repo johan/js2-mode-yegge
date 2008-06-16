@@ -307,3 +307,17 @@ Many updates to the parser to generate the new AST structure.
   * complete simplifying/organizing overhaul of xml expression parsing
 
 Some very minor tweaks, all invisible to js2-mode users, to prepare for porting Rhino's code generator.
+
+=Release notes for Jun 15, 2008, js2-20080615a.el:=
+
+  * fixed a parser error for E4X XML foo.@[name] constructs
+
+=Release notes for Jun 16, 2008, js2-20080616.el:=
+
+  * fixed Issue #59: warning on line disables other formatting on line - errors and warnings now use overlays, so they don't mess with the existing formatting.
+
+  * fixed Issue #66:  Possible spurious "code has no side effects" warning.  I've fixed a whole class of these warnings by removing the side-effects check in the expression parser, and only keeping the one in the statement parser.  I have no idea why Rhino does both, since the check in the statement parser seems sufficient.
+
+  * fixed Issue #79:  Object properties 'default' and 'return' screwing up parsing -- I've made `js2-allow-keywords-as-property-names` true by default.
+
+  * updated Issue #61:  Enter key indents new line -- this was fixed in a previous release, but not marked Fixed in the issues page.  I added a `js2-enter-indents-newline` custom variable that defaults to true.
