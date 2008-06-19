@@ -251,7 +251,8 @@ Hopefully the Emacs maintainers can help figure out a way to make it work."
     ;; provide any option for saying "look, fontify the goddamn buffer
     ;; with just the keywords already".  Argh.
     (setq font-lock-defaults (list font-lock-keywords 'keywords-only))
-    (font-lock-default-fontify-buffer)))
+    (let (font-lock-verbose)
+      (font-lock-default-fontify-buffer))))
 
 (defun js2-reparse (&optional force)
   "Re-parse current buffer after user finishes some data entry.
@@ -265,8 +266,6 @@ buffer will only rebuild its `js2-mode-ast' if the buffer is dirty."
       (setq js2-mode-parsing t)
       (unwind-protect
           (when (or js2-mode-buffer-dirty-p force)
-            ;; Remove the 'fontified property so font-lock-fontify-buffer works
-            (set-text-properties (point-min) (point-max) nil)
             (js2-remove-overlays)
             (js2-with-unmodifying-text-property-changes
               (setq js2-mode-buffer-dirty-p nil

@@ -680,9 +680,15 @@ node are given relative start positions and correct lengths."
          (js2-labeled-stmt-node-stmt js2-labeled-stmt)
          (setq js2-labeled-stmt nil))
 
-    (setq pn (funcall parser)
-          tt-flagged (js2-peek-flagged-token)
-          tt (logand tt-flagged js2-clear-ti-mask))
+    (setq pn (funcall parser))
+
+    (js2-auto-insert-semicolon pn)
+    pn))
+
+(defun js2-auto-insert-semicolon (pn)
+  (let* ((tt-flagged (js2-peek-flagged-token))
+         (tt (logand tt-flagged js2-clear-ti-mask))
+         (pos (js2-node-pos pn)))
 
     ;; Don't do auto semi insertion for certain statement types.
     (unless (or (memq first-tt js2-no-semi-insertion)
@@ -692,16 +698,15 @@ node are given relative start positions and correct lengths."
         ;; Consume ';' as a part of expression
         (js2-consume-token)
         ;; extend the node bounds to include the semicolon.
-        (setf (js2-node-len pn) (- js2-token-end beg)))
+        (setf (js2-node-len pn) (- js2-token-end pos)))
        ((memq tt js2-autoinsert-semi-and-warn)
         ;; Autoinsert ;
-        (js2-parse-warn-missing-semi beg (js2-node-end pn)))
+        (js2-parse-warn-missing-semi pos (js2-node-end pn)))
        (t
         (if (js2-flag-not-set-p tt-flagged js2-ti-after-eol)
             ;; Report error if no EOL or autoinsert ';' otherwise
             (js2-report-error "msg.no.semi.stmt")
-          (js2-parse-warn-missing-semi beg (js2-node-end pn))))))
-    pn))
+          (js2-parse-warn-missing-semi pos (js2-node-end pn))))))))
 
 (defun js2-parse-condition ()
   "Parse a parenthesized boolean expression, e.g. in an if- or while-stmt.
@@ -1406,8 +1411,10 @@ expression and return it wrapped in a `js2-expr-stmt-node'."
         (js2-set-check-for-label)
         (setq expr (js2-parse-expr))
         (if (/= (js2-node-type expr) js2-LABEL)
-            (setq stmt (js2-wrap-with-expr-stmt pos expr t)
-                  continue nil)
+            (progn
+              (setq stmt (js2-wrap-with-expr-stmt (js2-node-pos expr) expr t)
+                    continue nil)
+              (js2-auto-insert-semicolon stmt))
           (js2-record-label expr bundle)))
 
       ;; no more labels; now parse the labeled statement
@@ -1419,7 +1426,8 @@ expression and return it wrapped in a `js2-expr-stmt-node'."
         (dolist (label (js2-labeled-stmt-node-labels bundle))
           (setq js2-label-set (remove label js2-label-set))))
 
-      (setf (js2-labeled-stmt-node-stmt bundle) stmt)
+      (setf (js2-labeled-stmt-node-stmt bundle) stmt
+            (js2-node-len bundle) (- (js2-node-end stmt) pos))
       (js2-node-add-children bundle stmt)
       bundle)))
 
