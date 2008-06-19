@@ -682,17 +682,16 @@ node are given relative start positions and correct lengths."
 
     (setq pn (funcall parser))
 
-    (js2-auto-insert-semicolon pn)
+    ;; Don't do auto semi insertion for certain statement types.
+    (unless (or (memq first-tt js2-no-semi-insertion)
+                (js2-labeled-stmt-node-p pn))
+      (js2-auto-insert-semicolon pn))
     pn))
 
 (defun js2-auto-insert-semicolon (pn)
   (let* ((tt-flagged (js2-peek-flagged-token))
          (tt (logand tt-flagged js2-clear-ti-mask))
          (pos (js2-node-pos pn)))
-
-    ;; Don't do auto semi insertion for certain statement types.
-    (unless (or (memq first-tt js2-no-semi-insertion)
-                (js2-labeled-stmt-node-p pn))
       (cond
        ((= tt js2-SEMI)
         ;; Consume ';' as a part of expression
@@ -706,7 +705,7 @@ node are given relative start positions and correct lengths."
         (if (js2-flag-not-set-p tt-flagged js2-ti-after-eol)
             ;; Report error if no EOL or autoinsert ';' otherwise
             (js2-report-error "msg.no.semi.stmt")
-          (js2-parse-warn-missing-semi pos (js2-node-end pn))))))))
+          (js2-parse-warn-missing-semi pos (js2-node-end pn)))))))
 
 (defun js2-parse-condition ()
   "Parse a parenthesized boolean expression, e.g. in an if- or while-stmt.
