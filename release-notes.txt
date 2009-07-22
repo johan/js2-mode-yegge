@@ -1,3 +1,15 @@
+New for 20090722 release:
+
+  - changed `js2-auto-indent-flag' to `js2-auto-indent-p'
+  - changed `js2-bounce-indent-flag' to `js2-bounce-indent-p'
+  - added js2-externs.el with some predefined browser externs
+  - added `js2-additional-externs' for user-defined externs
+  - went back to using c-fill-paragraph
+  - bug fix for matching curly braces
+  - added support for auto-completing try/catch blocks
+  - set mode-specific c-comment-start-regexp
+  - added 4-space indent option for expression continuation lines
+
 Since 2008330:
 
   - fixed broken installation instructions
