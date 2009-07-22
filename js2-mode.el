@@ -1,7 +1,7 @@
 ;;; js2-mode.el --- an improved JavaScript editing mode
 
 ;; Author:  Steve Yegge (steve.yegge@gmail.com)
-;; Version: 20080403
+;; Version: 20090722
 ;; Keywords:  javascript languages
 
 ;; This program is free software; you can redistribute it and/or
@@ -23,8 +23,8 @@
 
 ;; This JavaScript editing mode supports:
 ;;
-;;  - the full JavaScript language through version 1.7
-;;  - support for most Rhino and SpiderMonkey extensions from 1.5 to 1.7
+;;  - the full JavaScript language through version 1.8
+;;  - support for most Rhino and SpiderMonkey extensions from 1.5 to 1.8
 ;;  - accurate syntax highlighting using a recursive-descent parser
 ;;  - syntax-error and strict-mode warning reporting
 ;;  - "bouncing" line indentation to choose among alternate indentation points
@@ -212,8 +212,7 @@
   (if (and js2-mode-must-byte-compile
            (not (byte-code-function-p (symbol-function 'js2-mode))))
       (error "You must byte-compile js2-mode before using it."))
-  (if (and (boundp 'running-xemacs)
-           running-xemacs)
+  (if (and (boundp 'running-xemacs) running-xemacs)
       (error "js2-mode is not compatible with XEmacs"))
   (unless (>= emacs-major-version 21)
     (error "js2-mode requires GNU Emacs version 21 or higher")))

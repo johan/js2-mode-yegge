@@ -80,7 +80,7 @@
 (require 'js2-highlight) ; syntax coloring
 (require 'js2-browse)    ; imenu support
 
-(defconst js2-version "1.7.0"
+(defconst js2-version "1.8.0"
   "Version of JavaScript supported, plus minor js2 version.")
 
 (defmacro js2-record-face (face)
@@ -396,6 +396,14 @@ Scanner should be initialized."
   (js2-consume-token)
   (js2-parse-function 'FUNCTION_EXPRESSION_STATEMENT))
 
+(defun js2-parse-function-closure-body (fn-node)
+  "Parse a JavaScript 1.8 function closure body."
+  (let* ((js2-nesting-of-function (1+ js2-nesting-of-function))
+         (pn (js2-parse-expr)))
+    (setf (js2-function-node-body fn-node) pn)
+    (js2-node-add-children fn-node pn)
+    pn))
+  
 (defun js2-parse-function-body (fn-node)
   (js2-must-match js2-LC "msg.no.brace.body")
   (let ((pos js2-token-beg)         ; LC position
@@ -474,7 +482,6 @@ Last token scanned is the close-curly for the function body."
         lp
         (synthetic-type function-type)
         member-expr-node)
-
     ;; parse function name, expression, or non-name (anonymous)
     (cond
      ;; function foo(...)
@@ -541,9 +548,13 @@ Last token scanned is the close-curly for the function body."
           js2-loop-set
           js2-loop-and-switch-set)
 
-      ;; parse params and function body
       (js2-parse-function-params fn-node pos)
-      (js2-parse-function-body fn-node)
+
+      (if (and (>= js2-language-version 180)
+               (/= (js2-peek-token) js2-LC))
+          (js2-parse-function-closure-body fn-node)
+        (js2-parse-function-body fn-node))
+
       (if name
           (js2-node-add-children fn-node name))
 

@@ -230,12 +230,12 @@ Useful for viewing Mozilla JavaScript source code."
   :type 'boolean
   :group 'js2-mode)
 
-(defcustom js2-language-version 170
+(defcustom js2-language-version 180
   "Configures what JavaScript language version to recognize.
-Currently only 150, 160 and 170 are supported, corresponding
-to JavaScript 1.5, 1.6 and 1.7, respectively.  In a nutshell,
-1.6 adds E4X support, and 1.7 adds let, yield, and Array
-comprehensions."
+Currently versions 150, 160, 170 and 180 are supported, corresponding
+to JavaScript 1.5, 1.6, 1.7 and 1.8, respectively.  In a nutshell,
+1.6 adds E4X support, 1.7 adds let, yield, and Array comprehensions,
+and 1.8 adds function closures."
   :type 'integer
   :group 'js2-mode)
 
@@ -301,7 +301,7 @@ which doesn't seem particularly useful, but Rhino permits it."
   :type 'boolean
   :group 'js2-mode)
 
-(defvar js2-mode-version 20090722
+(defvar js2-mode-version 20081217
   "Release number for `js2-mode'.")
 
 ;; scanner variables

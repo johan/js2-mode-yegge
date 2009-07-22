@@ -1,5 +1,7 @@
 New for 20090722 release:
 
+  - added support for JavaScript 1.8 function closures
+    - set `js2-language-version' default to 180
   - changed `js2-auto-indent-flag' to `js2-auto-indent-p'
   - changed `js2-bounce-indent-flag' to `js2-bounce-indent-p'
   - added js2-externs.el with some predefined browser externs
