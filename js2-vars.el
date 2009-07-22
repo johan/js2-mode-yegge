@@ -301,7 +301,7 @@ which doesn't seem particularly useful, but Rhino permits it."
   :type 'boolean
   :group 'js2-mode)
 
-(defvar js2-mode-version 20081217
+(defvar js2-mode-version 20090722
   "Release number for `js2-mode'.")
 
 ;; scanner variables
