@@ -28,6 +28,8 @@
   (require 'cc-langs)    ; it's here in Emacs 21...
   (require 'cc-engine))  ; for `c-paragraph-start' et. al.
 
+(require 'js2-externs)
+
 (defvar js2-emacs22 (>= emacs-major-version 22))
 
 (defcustom js2-highlight-level 2
@@ -36,9 +38,12 @@ nil, zero or negative means none.
 1 adds basic syntax highlighting.
 2 adds highlighting of some Ecma built-in properties.
 3 adds highlighting of many Ecma built-in functions."
-  :type 'integer
-  :group 'js2-mode)
-
+  :group 'js2-mode
+  :type '(choice (const :tag "None" nil)
+                 (const :tag "Basic" 1)
+                 (const :tag "Include Properties" 2)
+                 (const :tag "Include Functions" 3)))
+  
 (defvar js2-mode-dev-mode-p t
   "Non-nil if running in development mode.  Normally nil.")
 
@@ -78,13 +83,13 @@ so this behavior is customizable."
   :group 'js2-mode
   :type 'boolean)
 
-(defcustom js2-auto-indent-flag t
+(defcustom js2-auto-indent-p t
   "Automatic indentation with punctuation characters. If non-nil, the
 current line is indented when certain punctuations are inserted."
   :group 'js2-mode
   :type 'boolean)
 
-(defcustom js2-bounce-indent-flag t
+(defcustom js2-bounce-indent-p t
   "Non-nil to have indent-line function choose among alternatives.
 If nil, the indent-line function will indent to a predetermined column
 based on heuristic guessing.  If non-nil, then if the current line is
@@ -114,7 +119,7 @@ If non-nil, bounce between bol/eol and first/last non-whitespace char."
   :type 'boolean)
 
 (defcustom js2-electric-keys '("{" "}" "(" ")" "[" "]" ":" ";" "," "*")
-  "Keys that auto-indent when `js2-auto-indent-flag' is non-nil.
+  "Keys that auto-indent when `js2-auto-indent-p' is non-nil.
 Each value in the list is passed to `define-key'."
   :type 'list
   :group 'js2-mode)
@@ -225,12 +230,6 @@ Useful for viewing Mozilla JavaScript source code."
   :type 'boolean
   :group 'js2-mode)
 
-(defcustom js2-basic-offset c-basic-offset
-  "Functions like `c-basic-offset' in js2-mode buffers."
-  :type 'integer
-  :group 'js2-mode)
-(make-variable-buffer-local 'js2-basic-offset)
-
 (defcustom js2-language-version 170
   "Configures what JavaScript language version to recognize.
 Currently only 150, 160 and 170 are supported, corresponding
@@ -302,16 +301,19 @@ which doesn't seem particularly useful, but Rhino permits it."
   :type 'boolean
   :group 'js2-mode)
 
-(defvar js2-mode-version 20080322
+(defvar js2-mode-version 20081217
   "Release number for `js2-mode'.")
 
 ;; scanner variables
 
+(defmacro deflocal (name value &optional comment)
+  `(progn
+     (defvar ,name ,value ,comment)
+     (make-variable-buffer-local ',name)))
+
 ;; We record the start and end position of each token.
-(defvar js2-token-beg 1)
-(make-variable-buffer-local 'js2-token-beg)
-(defvar js2-token-end -1)
-(make-variable-buffer-local 'js2-token-end)
+(deflocal js2-token-beg 1)
+(deflocal js2-token-end -1)
 
 (defvar js2-EOF_CHAR -1
   "Represents end of stream.  Distinct from js2-EOF token type.")
@@ -501,9 +503,10 @@ which doesn't seem particularly useful, but Rhino permits it."
 (defvar js2-WITHEXPR 158)
 (defvar js2-DEBUGGER 159)
 
-(defvar js2-COMMENT 160)  ; not yet in Rhino
+(defvar js2-COMMENT 160)
+(defvar js2-ENUM 161)  ; for "enum" reserved word
 
-(defvar js2-num-tokens (1+ js2-COMMENT))
+(defconst js2-num-tokens (1+ js2-ENUM))
 
 (defconst js2-debug-print-trees nil)
 
@@ -511,11 +514,6 @@ which doesn't seem particularly useful, but Rhino permits it."
 ;; Emacs character processing works best in buffers, so we'll
 ;; assume the input is a buffer.  JavaScript strings can be
 ;; copied into temp buffers before scanning them.
-
-(defmacro deflocal (name value comment)
-  `(progn
-     (defvar ,name ,value ,comment)
-     (make-variable-buffer-local ',name)))
 
 ;; Buffer-local variables yield much cleaner code than using `defstruct'.
 ;; They're the Emacs equivalent of instance variables, more or less.
@@ -569,15 +567,13 @@ List of chars built up while scanning various tokens.")
 
 ;;; Parser variables
 
-(defvar js2-parsed-errors nil
+(deflocal js2-parsed-errors nil
   "List of errors produced during scanning/parsing.")
-(make-variable-buffer-local 'js2-parsed-errors)
 
-(defvar js2-parsed-warnings nil
+(deflocal js2-parsed-warnings nil
   "List of warnings produced during scanning/parsing.")
-(make-variable-buffer-local 'js2-parsed-warnings)
 
-(defvar js2-recover-from-parse-errors t
+(deflocal js2-recover-from-parse-errors t
   "Non-nil to continue parsing after a syntax error.
 
 In recovery mode, the AST will be built in full, and any error
@@ -587,22 +583,19 @@ signaled.
 
 The variable is automatically buffer-local, because different
 modes that use the parser will need different settings.")
-(make-variable-buffer-local 'js2-recover-from-parse-errors)
 
-(defvar js2-parse-hook nil
+(deflocal js2-parse-hook nil
   "List of callbacks for receiving parsing progress.")
-(make-variable-buffer-local 'js2-parse-hook)
 
 (defvar js2-parse-finished-hook nil
   "List of callbacks to notify when parsing finishes.
 Not called if parsing was interrupted.")
 
-(defvar js2-is-eval-code nil
+(deflocal js2-is-eval-code nil
   "True if we're evaluating code in a string.
 If non-nil, the tokenizer will record the token text, and the AST nodes
 will record their source text.  Off by default for IDE modes, since the
 text is available in the buffer.")
-(make-variable-buffer-local 'js2-is-eval-code)
 
 (defvar js2-parse-ide-mode t
   "Non-nil if the parser is being used for `js2-mode'.
@@ -623,93 +616,133 @@ parser as a frontend to an interpreter or byte compiler.")
 
 ;; Inline Rhino's CompilerEnvirons vars as buffer-locals.
 
-(defvar js2-compiler-generate-debug-info t)
-(make-variable-buffer-local 'js2-compiler-generate-debug-info)
-
-(defvar js2-compiler-use-dynamic-scope nil)
-(make-variable-buffer-local 'js2-compiler-use-dynamic-scope)
-
-(defvar js2-compiler-reserved-keywords-as-identifier nil)
-(make-variable-buffer-local 'js2-compiler-reserved-keywords-as-identifier)
-
-(defvar js2-compiler-xml-available t)
-(make-variable-buffer-local 'js2-compiler-xml-available)
-
-(defvar js2-compiler-optimization-level 0)
-(make-variable-buffer-local 'js2-compiler-optimization-level)
-
-(defvar js2-compiler-generating-source t)
-(make-variable-buffer-local 'js2-compiler-generating-source)
-
-(defvar js2-compiler-strict-mode nil)
-(make-variable-buffer-local 'js2-compiler-strict-mode)
-
-(defvar js2-compiler-report-warning-as-error nil)
-(make-variable-buffer-local 'js2-compiler-report-warning-as-error)
-
-(defvar js2-compiler-generate-observer-count nil)
-(make-variable-buffer-local 'js2-compiler-generate-observer-count)
-
-(defvar js2-compiler-activation-names nil)
-(make-variable-buffer-local 'js2-compiler-activation-names)
+(deflocal js2-compiler-generate-debug-info t)
+(deflocal js2-compiler-use-dynamic-scope nil)
+(deflocal js2-compiler-reserved-keywords-as-identifier nil)
+(deflocal js2-compiler-xml-available t)
+(deflocal js2-compiler-optimization-level 0)
+(deflocal js2-compiler-generating-source t)
+(deflocal js2-compiler-strict-mode nil)
+(deflocal js2-compiler-report-warning-as-error nil)
+(deflocal js2-compiler-generate-observer-count nil)
+(deflocal js2-compiler-activation-names nil)
 
 ;; SKIP:  sourceURI
 
 ;; There's a compileFunction method in Context.java - may need it.
-(defvar js2-called-by-compile-function nil
+(deflocal js2-called-by-compile-function nil
   "True if `js2-parse' was called by `js2-compile-function'.
 Will only be used when we finish implementing the interpreter.")
-(make-variable-buffer-local 'js2-called-by-compile-function)
 
 ;; SKIP:  ts  (we just call `js2-init-scanner' and use its vars)
 
-(defvar js2-current-flagged-token js2-EOF)
-(make-variable-buffer-local 'js2-current-flagged-token)
-
-(defvar js2-current-token js2-EOF)
-(make-variable-buffer-local 'js2-current-token)
+(deflocal js2-current-flagged-token js2-EOF)
+(deflocal js2-current-token js2-EOF)
 
 ;; SKIP:  node factory - we're going to just call functions directly,
 ;; and eventually go to a unified AST format.
 
-(defvar js2-nesting-of-function 0)
-(make-variable-buffer-local 'js2-nesting-of-function)
+(deflocal js2-nesting-of-function 0)
 
-(defvar js2-recorded-assignments nil)
-(make-variable-buffer-local 'js2-assignments-from-parse)
+(deflocal js2-recorded-assignments nil
+  "Tracks assignments found during parsing.")
+
+(defcustom js2-global-externs nil
+  "A list of any extern names you'd like to consider always declared.
+This list is global and is used by all js2-mode files.
+You can create buffer-local externs list using `js2-additional-externs'.
+
+There is also a buffer-local variable `js2-default-externs',
+which is initialized by default to include the Ecma-262 externs
+and the standard browser externs.  The three lists are all
+checked during highlighting."
+  :type 'list
+  :group 'js2-mode)
+
+(deflocal js2-default-externs nil
+  "Default external declarations.
+
+These are currently only used for highlighting undeclared variables,
+which only worries about top-level (unqualified) references.
+As js2-mode's processing improves, we will flesh out this list.
+
+The initial value is set to `js2-ecma-262-externs', unless you
+have set `js2-include-browser-externs', in which case the browser
+externs are also included.
+
+See `js2-additional-externs' for more information.")
+
+(defcustom js2-include-browser-externs t
+  "Non-nil to include browser externs in the master externs list.
+If you work on JavaScript files that are not intended for browsers,
+such as Mozilla Rhino server-side JavaScript, set this to nil.
+You can always include them on a per-file basis by calling
+`js2-add-browser-externs' from a function on `js2-mode-hook'.
+
+See `js2-additional-externs' for more information about externs."
+  :type 'boolean
+  :group 'js2-mode)
+
+(defcustom js2-include-rhino-externs t
+  "Non-nil to include Mozilla Rhino externs in the master externs list.
+See `js2-additional-externs' for more information about externs."
+  :type 'boolean
+  :group 'js2-mode)
+
+(defcustom js2-include-gears-externs t
+  "Non-nil to include Google Gears externs in the master externs list.
+See `js2-additional-externs' for more information about externs."
+  :type 'boolean
+  :group 'js2-mode)
+
+(deflocal js2-additional-externs nil
+  "A buffer-local list of additional external declarations.
+It is used to decide whether variables are considered undeclared
+for purposes of highlighting.
+
+Each entry is a lisp string.  The string should be the fully qualified
+name of an external entity.  All externs should be added to this list,
+so that as js2-mode's processing improves it can take advantage of them.
+
+You may want to declare your externs in three ways.
+First, you can add externs that are valid for all your JavaScript files.
+You should probably do this by adding them to `js2-global-externs', which
+is a global list used for all js2-mode files.
+
+Next, you can add a function to `js2-mode-hook' that adds additional
+externs appropriate for the specific file, perhaps based on its path.
+These should go in `js2-additional-externs', which is buffer-local.
+
+Finally, you can add a function to `js2-post-parse-callbacks',
+which is called after parsing completes, and `root' is bound to
+the root of the parse tree.  At this stage you can set up an AST
+node visitor using `js2-visit-ast' and examine the parse tree
+for specific import patterns that may imply the existence of
+other externs, possibly tied to your build system.  These should also
+be added to `js2-additional-externs'.
+
+Your post-parse callback may of course also use the simpler and
+faster (but perhaps less robust) approach of simply scanning the
+buffer text for your imports, using regular expressions.")
 
 ;; SKIP:  decompiler
 ;; SKIP:  encoded-source
 
-;;; These variables are per-function and should be saved/restored
-;;; during function parsing.
+;;; The following variables are per-function and should be saved/restored
+;;; during function parsing...
 
-(defvar js2-current-script-or-fn nil)
-(make-variable-buffer-local 'js2-current-script-or-fn)
-
-(defvar js2-current-scope nil)
-(make-variable-buffer-local 'js2-current-scope)
-
-(defvar js2-nesting-of-with 0)
-(make-variable-buffer-local 'js2-nesting-of-with)
-
-(defvar js2-label-set nil
+(deflocal js2-current-script-or-fn nil)
+(deflocal js2-current-scope nil)
+(deflocal js2-nesting-of-with 0)
+(deflocal js2-label-set nil
   "An alist mapping label names to nodes.")
-(make-variable-buffer-local 'js2-label-set)
 
-(defvar js2-loop-set nil)
-(make-variable-buffer-local 'js2-loop-set)
+(deflocal js2-loop-set nil)
+(deflocal js2-loop-and-switch-set nil)
+(deflocal js2-has-return-value nil)
+(deflocal js2-end-flags 0)
 
-(defvar js2-loop-and-switch-set nil)
-(make-variable-buffer-local 'js2-loop-and-switch-set)
-
-(defvar js2-has-return-value nil)
-(make-variable-buffer-local 'js2-has-return-value)
-
-(defvar js2-end-flags 0)
-(make-variable-buffer-local 'js2-end-flags)
-
-;;; end of per function variables
+;;; ...end of per function variables
 
 ;; Without 2-token lookahead, labels are a problem.
 ;; These vars store the token info of the last matched name,
@@ -751,21 +784,15 @@ Will only be used when we finish implementing the interpreter.")
 ;; statementHelper() function, the main statement parser, which
 ;; is then used by quite a few of the sub-parsers.  We just make
 ;; it a buffer-local variable and make sure it's cleaned up properly.
-(defvar js2-labeled-stmt nil)  ; type `js2-labeled-stmt-node'
-(make-variable-buffer-local 'js2-labeled-stmt)
+(deflocal js2-labeled-stmt nil)  ; type `js2-labeled-stmt-node'
 
 ;; Similarly, Rhino passes an inForInit boolean through about half
 ;; the expression parsers.  We use a dynamically-scoped variable,
 ;; which makes it easier to funcall the parsers individually without
 ;; worrying about whether they take the parameter or not.
-(defvar js2-in-for-init nil)
-(make-variable-buffer-local 'js2-in-for-init)
-
-(defvar js2-temp-name-counter 0)
-(make-variable-buffer-local 'js2-temp-name-counter)
-
-(defvar js2-parse-stmt-count 0)
-(make-variable-buffer-local 'js2-parse-stmt-count)
+(deflocal js2-in-for-init nil)
+(deflocal js2-temp-name-counter 0)
+(deflocal js2-parse-stmt-count 0)
 
 (defsubst js2-get-next-temp-name ()
   (format "$%d" (incf js2-temp-name-counter)))
@@ -783,13 +810,11 @@ and error-reporting appear, but you can always type ahead if
 you wish.  This appears to be more or less how Eclipse, IntelliJ
 and other editors work.")
 
-(defvar js2-record-comments t
+(deflocal js2-record-comments t
   "Instructs the scanner to record comments in `js2-scanned-comments'.")
-(make-variable-buffer-local 'js2-record-comments)
 
-(defvar js2-scanned-comments nil
+(deflocal js2-scanned-comments nil
   "List of all comments from the current parse.")
-(make-variable-buffer-local 'js2-scanned-comments)
 
 (defun js2-underline-color (color)
   "Return a legal value for the :underline face attribute based on COLOR."
@@ -936,6 +961,13 @@ Not currently used."
   "Face used to highlight brackets in jsdoc html tags."
   :group 'js2-mode)
 
+(defcustom js2-post-parse-callbacks nil
+  "A list of callback functions invoked after parsing finishes.
+Currently, the main use for this function is to add synthetic
+declarations to `js2-recorded-assignments', which see."
+  :type 'list
+  :group 'js2-mode)
+
 (defface js2-external-variable-face
   '((t :foreground "orange"))
   "Face used to highlight assignments to undeclared variables.
@@ -954,18 +986,18 @@ another file, or you've got a potential bug."
   (let ((map (make-sparse-keymap))
         keys)
     (define-key map [mouse-1] #'js2-mode-show-node)
-    (define-key map "\C-m" #'js2-enter-key)
+    (define-key map (kbd "C-m") #'js2-enter-key)
     (when js2-rebind-eol-bol-keys
-      (define-key map "\C-a" #'js2-beginning-of-line)
-      (define-key map "\C-e" #'js2-end-of-line))
-    (define-key map "\C-c\C-e" #'js2-mode-hide-element)
-    (define-key map "\C-c\C-s" #'js2-mode-show-element)
-    (define-key map "\C-c\C-a" #'js2-mode-show-all)
-    (define-key map "\C-c\C-f" #'js2-mode-toggle-hide-functions)
-    (define-key map "\C-c\C-t" #'js2-mode-toggle-hide-comments)
-    (define-key map "\C-c\C-o" #'js2-mode-toggle-element)
-    (define-key map "\C-c\C-w" #'js2-mode-toggle-warnings-and-errors)
-    (define-key map (kbd "C-c C-'") #'js2-next-error)
+      (define-key map (kbd "C-a") #'js2-beginning-of-line)
+      (define-key map (kbd "C-e") #'js2-end-of-line))
+    (define-key map (kbd "C-c C-e") #'js2-mode-hide-element)
+    (define-key map (kbd "C-c C-s") #'js2-mode-show-element)
+    (define-key map (kbd "C-c C-a") #'js2-mode-show-all)
+    (define-key map (kbd "C-c C-f") #'js2-mode-toggle-hide-functions)
+    (define-key map (kbd "C-c C-t") #'js2-mode-toggle-hide-comments)
+    (define-key map (kbd "C-c C-o") #'js2-mode-toggle-element)
+    (define-key map (kbd "C-c C-w") #'js2-mode-toggle-warnings-and-errors)
+    (define-key map (kbd "C-c C-`") #'js2-next-error)
     ;; also define user's preference for next-error, if available
     (if (setq keys (where-is-internal #'next-error))
         (define-key map (car keys) #'js2-next-error))
@@ -975,8 +1007,8 @@ another file, or you've got a potential bug."
     (define-key map (or (car (where-is-internal #'narrow-to-defun))
                         (kbd "C-x nd"))
       #'js2-narrow-to-defun)
-    (define-key map [down-mouse-3] #'js2-mouse-3)
-    (when js2-auto-indent-flag
+    (define-key map [down-mouse-3] #'js2-down-mouse-3)
+    (when js2-auto-indent-p
       (mapc (lambda (key)
               (define-key map key #'js2-insert-and-indent))
             js2-electric-keys))
@@ -1048,37 +1080,21 @@ another file, or you've got a potential bug."
   "Matches a //-comment line.  Must be first non-whitespace on line.
 First match-group is the leading whitespace.")
 
-(defvar js2-mode-ast nil "Private variable.")
-(make-variable-buffer-local 'js2-mode-ast)
-
 (defvar js2-mode-hook nil)
 
-(defvar js2-mode-parse-timer nil "Private variable.")
-(make-variable-buffer-local 'js2-mode-parse-timer)
-
-(defvar js2-mode-buffer-dirty-p nil "Private variable.")
-(make-variable-buffer-local 'js2-mode-buffer-dirty-p)
-
-(defvar js2-mode-parsing nil "Private variable.")
-(make-variable-buffer-local 'js2-mode-parsing)
-
-(defvar js2-mode-node-overlay nil)
-(make-variable-buffer-local 'js2-mode-node-overlay)
+(deflocal js2-mode-ast nil "Private variable.")
+(deflocal js2-mode-parse-timer nil "Private variable.")
+(deflocal js2-mode-buffer-dirty-p nil "Private variable.")
+(deflocal js2-mode-parsing nil "Private variable.")
+(deflocal js2-mode-node-overlay nil)
 
 (defvar js2-mode-show-overlay js2-mode-dev-mode-p
   "Debug:  Non-nil to highlight AST nodes on mouse-down.")
 
-(defvar js2-mode-fontifications nil "Private variable")
-(make-variable-buffer-local 'js2-mode-fontifications)
-
-(defvar js2-mode-deferred-properties nil "Private variable")
-(make-variable-buffer-local 'js2-mode-deferred-properties)
-
-(defvar js2-imenu-recorder nil "Private variable")
-(make-variable-buffer-local 'js2-imenu-recorder)
-
-(defvar js2-imenu-function-map nil "Private variable")
-(make-variable-buffer-local 'js2-imenu-function-map)
+(deflocal js2-mode-fontifications nil "Private variable")
+(deflocal js2-mode-deferred-properties nil "Private variable")
+(deflocal js2-imenu-recorder nil "Private variable")
+(deflocal js2-imenu-function-map nil "Private variable")
 
 (defvar js2-paragraph-start
   "\\(@[a-zA-Z]+\\>\\|$\\)")
@@ -1140,6 +1156,7 @@ First match-group is the leading whitespace.")
   (defvar font-lock-mode nil)
   (defvar font-lock-keywords nil))
 
+;; Workaround for buggy Emacs 21 behavior.
 (eval-when-compile
   (if (< emacs-major-version 22)
       (defun c-setup-paragraph-variables () nil)))

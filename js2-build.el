@@ -32,7 +32,8 @@
 (require 'js2-util)
 
 (defconst js2-build-js2-mode-files
-  '("js2-vars"
+  '("js2-externs"
+    "js2-vars"
     "js2-util"
     "js2-scan"
     "js2-messages"

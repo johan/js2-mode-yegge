@@ -25,7 +25,7 @@
 ;; huge pile of work that I'm just not up for any time soon.
 ;;
 ;; In the meantime, the compromise solution is that we offer a
-;; "bounce indenter", configured with `js2-bounce-indent-flag', which
+;; "bounce indenter", configured with `js2-bounce-indent-p', which
 ;; cycles the current line indent among various likely guess points.
 ;; This approach is far from perfect, but should at least make it
 ;; slightly easier to move the line towards its desired indentation
@@ -70,7 +70,7 @@ bound to KEY in the global keymap and indents the current line."
   ;; don't do the electric keys inside comments or strings,
   ;; and don't do bounce-indent with them.
   (let ((parse-state (parse-partial-sexp (point-min) (point)))
-        (js2-bounce-indent-flag (js2-code-at-bol-p)))
+        (js2-bounce-indent-p (js2-code-at-bol-p)))
     (unless (or (nth 3 parse-state)
                 (nth 4 parse-state))
       (indent-according-to-mode))))
@@ -432,6 +432,20 @@ bracket, brace and statement nesting."
                          js2-basic-offset))
                 positions)
 
+          ;; (first + epsilon) likely point:  indent 2x from beginning of
+          ;; previous code line.  Some companies like this approach.  Ahem.
+          ;; Seriously, though -- 4-space indent for expression continuation
+          ;; lines isn't a bad idea.  We should eventually implement it
+          ;; that way.
+          (push (setq basic-offset
+                      (+ (save-excursion
+                           (back-to-indentation)
+                           (js2-backward-sws)
+                           (back-to-indentation)
+                           (setq prev-line-col (current-column)))
+                         (* 2 js2-basic-offset)))
+                positions)
+
           ;; second likely point:  indent from assign-expr RHS.  This
           ;; is just a crude guess based on finding " = " on the previous
           ;; line containing actual code.
@@ -474,7 +488,7 @@ bracket, brace and statement nesting."
             (unless (member pos positions)
               (push pos positions)))
 
-          ;; fourth likely position:  first preceding code with less indentation
+          ;; fourth likely point:  first preceding code with less indentation
           ;; than the immediately preceding code line.
           (setq pos (save-excursion
                       (js2-backward-sws)
@@ -589,7 +603,7 @@ If so, we don't ever want to use bounce-indent."
            (cond
             ;; bounce-indenting is disabled during electric-key indent.
             ;; It doesn't work well on first line of buffer.
-            ((and js2-bounce-indent-flag
+            ((and js2-bounce-indent-p
                   (not (js2-same-line (point-min)))
                   (not (js2-1-line-comment-continuation-p)))
              (js2-bounce-indent indent-col parse-status)
@@ -603,7 +617,7 @@ If so, we don't ever want to use bounce-indent."
 
 (defun js2-indent-region (start end)
   "Indent the region, but don't use bounce indenting."
-  (let ((js2-bounce-indent-flag nil)
+  (let ((js2-bounce-indent-p nil)
         (indent-region-function nil))
     (indent-region start end nil)))  ; nil for byte-compiler
 

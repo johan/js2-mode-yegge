@@ -99,7 +99,9 @@ is only true until the node is added to its parent; i.e., while parsing."
                                :format js2-ts-comment-type)
         js2-scanned-comments)
   (when js2-parse-ide-mode
-    (js2-record-face 'font-lock-comment-face)
+    (js2-record-face (if (eq js2-ts-comment-type 'jsdoc)
+                         'font-lock-doc-face
+                       'font-lock-comment-face))
     (when (memq js2-ts-comment-type '(html preprocessor))
       ;; Tell cc-engine the bounds of the comment.
       (put-text-property js2-token-beg (1- js2-token-end) 'c-in-sws t))))
@@ -382,6 +384,11 @@ Scanner should be initialized."
         (js2-node-add-children root comment)))
 
     (setf (js2-node-len root) (- end pos))
+
+    ;; Give extensions a chance to muck with things before highlighting starts.
+    (dolist (callback js2-post-parse-callbacks)
+      (funcall callback))
+
     (js2-highlight-undeclared-vars)
     root))
 

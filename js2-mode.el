@@ -109,6 +109,7 @@
 (require 'js2-parse)
 (require 'js2-messages)
 (require 'js2-indent)
+(require 'js2-externs)
 
 ;;;###autoload (add-to-list 'auto-mode-alist '("\\.js$" . js2-mode))
 
@@ -129,7 +130,13 @@
        (max max-lisp-eval-depth 3000))
   (set (make-local-variable 'indent-line-function) #'js2-indent-line)
   (set (make-local-variable 'indent-region-function) #'js2-indent-region)
-  (set (make-local-variable 'fill-paragraph-function) #'js2-fill-paragraph)
+
+  ;; I tried an "improvement" to `c-fill-paragraph' that worked out badly
+  ;; on most platforms other than the one I originally wrote it on.  So it's
+  ;; back to `c-fill-paragraph'.  Still not perfect, though -- something to do
+  ;; with our binding of the RET key inside comments:  short lines stay short.
+  (set (make-local-variable 'fill-paragraph-function) #'c-fill-paragraph)
+
   (set (make-local-variable 'before-save-hook) #'js2-before-save)
   (set (make-local-variable 'next-error-function) #'js2-next-error)
   (set (make-local-variable 'beginning-of-defun-function) #'js2-beginning-of-defun)
@@ -145,6 +152,7 @@
   ;; some variables needed by cc-engine for paragraph-fill, etc.
   (setq c-buffer-is-cc-mode t
         c-comment-prefix-regexp js2-comment-prefix-regexp
+        c-comment-start-regexp "/[*/]\\|\\s|"
         c-paragraph-start js2-paragraph-start
         c-paragraph-separate "$"
         comment-start-skip js2-comment-start-skip
@@ -153,6 +161,15 @@
         c-syntactic-eol js2-syntactic-eol)
   (if js2-emacs22
       (c-setup-paragraph-variables))
+
+  (setq js2-default-externs
+        (append js2-ecma-262-externs
+                (if js2-include-browser-externs
+                    js2-browser-externs)
+                (if js2-include-gears-externs
+                    js2-gears-externs)
+                (if js2-include-rhino-externs
+                     js2-rhino-externs)))
 
   ;; We do our own syntax highlighting based on the parse tree.
   ;; However, we want minor modes that add keywords to highlight properly
@@ -270,7 +287,8 @@ buffer will only rebuild its `js2-mode-ast' if the buffer is dirty."
             (js2-with-unmodifying-text-property-changes
               (setq js2-mode-buffer-dirty-p nil
                     js2-mode-fontifications nil
-                    js2-mode-deferred-properties nil)
+                    js2-mode-deferred-properties nil
+                    js2-additional-externs nil)
               (if js2-mode-verbose-parse-p
                   (message "parsing..."))
               (setq time
@@ -504,7 +522,7 @@ This ensures that the counts and `next-error' are correct."
            (and first-line
                 (eolp)
                 (save-excursion
-                  (skip-syntax-forward " ")
+                  (skip-chars-forward " \t\r\n")
                   (not (eq (char-after) ?*))))))
     (insert "\n")
     (cond
@@ -551,26 +569,6 @@ BEG is the string beginning, QUOTE is the quote char."
                 (insert "+ " squote)))))
       (move-marker tag nil))))
 
-(defun js2-fill-paragraph (arg)
-  "Fill paragraph after point.  Prefix ARG means justify as well.
-Has special handling for filling in comments and strings."
-  (let* ((parse-status (save-excursion
-                         (parse-partial-sexp (point-min) (point))))
-         (quote-char (or (nth 3 parse-status)
-                         (save-match-data
-                           (if (looking-at "[\"\']")
-                               (char-after))))))
-    (cond
-     (quote-char
-      (js2-fill-string (or (nth 8 parse-status)
-                           (point))
-                       quote-char)
-      t) ; or fill-paragraph does evil things afterwards
-     ((nth 4 parse-status)  ; in block comment?
-      (js2-fill-comment parse-status arg))
-     (t
-      (fill-paragraph arg)))))
-
 (defun js2-fill-comment (parse-status arg)
   "Fill-paragraph in a block comment."
   (let* ((beg (nth 8 parse-status))
@@ -604,7 +602,8 @@ Has special handling for filling in comments and strings."
       ;; since it provides better results.  Otherwise if you're on the
       ;; last line, it doesn't prefix with stars the way you'd expect.
       ;; TODO:  write our own fill function that works in Emacs 21
-      (c-fill-paragraph arg))
+      (let ((fill-paragraph-function 'c-fill-paragraph))
+        (c-fill-paragraph arg)))
 
     ;; last line is typically indented wrong, so fix it
     (when end-marker
@@ -681,34 +680,65 @@ Actually returns the quote character that begins the string."
          (nth 4 parse-state)))))
 
 (defun js2-mode-match-curly (arg)
-  "Insert matching curly-brace."
+  "Insert matching curly-brace.
+With prefix arg, no formatting or indentation will occur -- the close-brace
+is simply inserted directly at the point."
   (interactive "p")
-  (insert "{")
-  (if current-prefix-arg
+  (let ((try-pos (if (looking-back "\\s-+\\(try\\)\\s-*" (point-at-bol))
+                     (match-beginning 1))))
+    (insert "{")
+    (cond
+     (current-prefix-arg
       (save-excursion
-        (insert "}"))
-    (unless (or (not (looking-at "\\s-*$"))
-                (js2-mode-inside-comment-or-string))
-      (undo-boundary)
+        (insert "}")))
 
-      ;; absolutely mystifying bug:  when inserting the next "\n",
-      ;; the buffer-undo-list is given two new entries:  the inserted range,
-      ;; and the incorrect position of the point.  It's recorded incorrectly
-      ;; as being before the opening "{", not after it.  But it's recorded
-      ;; as the correct value if you're debugging `js2-mode-match-curly'
-      ;; in edebug.  I have no idea why it's doing this, but incrementing
-      ;; the inserted position fixes the problem, so that the undo takes us
-      ;; back to just after the user-inserted "{".
+     (try-pos
+      (js2-insert-catch-skel try-pos))
+
+     (t
+      ;; Otherwise try to do something smarter.
+      (unless (or (not (looking-at "\\s-*$"))
+                  (js2-mode-inside-comment-or-string))
+        (undo-boundary)
+
+        ;; absolutely mystifying bug:  when inserting the next "\n",
+        ;; the buffer-undo-list is given two new entries:  the inserted range,
+        ;; and the incorrect position of the point.  It's recorded incorrectly
+        ;; as being before the opening "{", not after it.  But it's recorded
+        ;; as the correct value if you're debugging `js2-mode-match-curly'
+        ;; in edebug.  I have no idea why it's doing this, but incrementing
+        ;; the inserted position fixes the problem, so that the undo takes us
+        ;; back to just after the user-inserted "{".
+        (insert "\n")
+        (ignore-errors
+          (incf (cadr buffer-undo-list)))
+
+        (js2-indent-line)
+        (save-excursion
+          (insert "\n}")
+          (let ((js2-bounce-indent-flag (js2-code-at-bol-p)))
+            (js2-indent-line))))))))
+
+(defun js2-insert-catch-skel (try-pos)
+  "Complete a try/catch block after inserting a { following a try keyword.
+Rationale is that a try always needs a catch or a finally, and the catch is
+the more likely of the two.
+
+TRY-POS is the buffer position of the try keyword.  The open-curly should
+already have been inserted."
+  (let ((try-col (save-excursion
+                   (goto-char try-pos)
+                   (current-column))))
+    (insert "\n")
+    (undo-boundary)
+    (js2-indent-line) ;; indent the blank line where cursor will end up
+    (save-excursion
       (insert "\n")
-      (ignore-errors
-        (incf (cadr buffer-undo-list)))
-
-      (js2-indent-line)
-      (save-excursion
-        (insert "\n}")
-        (let ((js2-bounce-indent-flag (js2-code-at-bol-p)))
-          (js2-indent-line))))))
-    
+      (indent-to try-col)
+      (insert "} catch (x) {\n\n")
+      (indent-to try-col)
+      (insert "}"))))
+  
 (defun js2-mode-match-bracket ()
   "Insert matching bracket."
   (interactive)
@@ -717,7 +747,7 @@ Actually returns the quote character that begins the string."
               (js2-mode-inside-comment-or-string))
     (save-excursion
       (insert "]"))
-    (when js2-auto-indent-flag
+    (when js2-auto-indent-p
       (let ((js2-bounce-indent-flag (js2-code-at-bol-p)))
         (js2-indent-line)))))
 
@@ -729,7 +759,7 @@ Actually returns the quote character that begins the string."
               (js2-mode-inside-comment-or-string))
     (save-excursion
       (insert ")"))
-    (when js2-auto-indent-flag
+    (when js2-auto-indent-p
       (let ((js2-bounce-indent-flag (js2-code-at-bol-p)))
         (js2-indent-line)))))
 
@@ -1174,7 +1204,7 @@ RESET means start over from the beginning."
         (if (= (point) start)
             (js2-echo-error (point) (point)))))))
 
-(defun js2-mouse-3 ()
+(defun js2-down-mouse-3 ()
   "Make right-click move the point to the click location.
 This makes right-click context menu operations a bit more intuitive.
 The point will not move if the region is active, however, to avoid

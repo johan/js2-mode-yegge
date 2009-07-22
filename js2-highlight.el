@@ -278,22 +278,61 @@ of a simple name.  Called before EXPR has a parent node."
 (defconst js2-jsdoc-typed-tag-regexp
   (concat "^\\s-*\\*+\\s-*\\(@\\(?:"
           (regexp-opt
-           '("requires" "return" "returns" "throw" "throws"))
+           '("enum"
+             "extends"
+             "implements"
+             "requires"
+             "return"
+             "returns"
+             "throw"
+             "throws"))
           "\\)\\)\\s-*\\({[^}]+}\\)?")
   "Matches jsdoc tags with optional type.")
 
 (defconst js2-jsdoc-arg-tag-regexp
   (concat "^\\s-*\\*+\\s-*\\(@\\(?:"
           (regexp-opt
-           '("base" "extends" "member" "type" "version"))
+           '("bug"
+             "base"
+             "exception"
+             "member"
+             "name"
+             "throws"
+             "type"
+             "version"))
           "\\)\\)\\s-+\\([^ \t]+\\)")
   "Matches jsdoc tags with a single argument.")
 
 (defconst js2-jsdoc-empty-tag-regexp
   (concat "^\\s-*\\*+\\s-*\\(@\\(?:"
           (regexp-opt
-           '("addon" "author" "class" "constructor" "deprecated" "exec"
-             "exception" "fileoverview" "final" "ignore" "private"))
+           '("addon"
+             "class"
+             "const"
+             "constructor"
+             "deprecated"
+             "desc"
+             "event"
+             "exec"
+             "export"
+             "fileoverview"
+             "final"
+             "hidden"
+             "ignore"
+             "inheritDoc"
+             "interface"
+             "license"
+             "noalias"
+             "noshadow"
+             "notypecheck"
+             "override"
+             "preserve"
+             "preserveTry"
+             "private"
+             "protected"
+             "public"
+             "static"
+             ))
           "\\)\\)\\s-*")
   "Matches empty jsdoc tags.")
   
@@ -393,20 +432,18 @@ of a simple name.  Called before EXPR has a parent node."
 
 (defun js2-highlight-undeclared-vars ()
   "After entire parse is finished, look for undeclared variable assignments.
-Have to wait until entire buffer is parsed, since JavaScript permits var
+We have to wait until entire buffer is parsed, since JavaScript permits var
 decls to occur after they're used.
 
-We currently use a simple heuristic to rule out complaining about built-ins:
-if the name is capitalized we don't highlight it.  This could be improved a
-bit by declaring all the Ecma global object, constructor and function names
-in a hashtable, but we'd still wind up complaining about all the DHTML
-builtins, the Mozilla builtins, etc."
-  (let (name first-char)
+If any undeclared var name is in `js2-externs' or `js2-additional-externs',
+it is considered declared."
+  (let (name)
     (dolist (entry js2-recorded-assignments)
       (destructuring-bind (name-node scope pos end) entry
-        (setq name (js2-name-node-name name-node)
-              first-char (aref name 0))
-        (unless (or (and (>= first-char ?A) (<= first-char ?Z))
+        (setq name (js2-name-node-name name-node))
+        (unless (or (member name js2-global-externs)
+                    (member name js2-default-externs)
+                    (member name js2-additional-externs)
                     (js2-get-defining-scope scope name))
           (js2-set-face pos end 'js2-external-variable-face 'record)
           (js2-record-text-property pos end 'help-echo "Undeclared variable")

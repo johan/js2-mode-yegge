@@ -31,9 +31,9 @@
   (require 'cl))
 
 (defvar js2-tokens nil
-  "List of all defined token names.")  ; intialized below
+  "List of all defined token names.")  ; initialized in `js2-token-names'
 
-(defvar js2-token-names
+(defconst js2-token-names
   (let* ((names (make-vector js2-num-tokens -1))
          (case-fold-search nil)  ; only match js2-UPPER_CASE
          (syms (apropos-internal "^js2-\\(?:[A-Z_]+\\)")))
@@ -66,7 +66,7 @@ Signals an error if it's not a recognized token."
   "Return symbol for TOK given its code, e.g. 'js2-LP for code 86."
   (intern (js2-token-name tok)))
 
-(defvar js2-token-codes
+(defconst js2-token-codes
   (let ((table (make-hash-table :test 'eq :size 256)))
     (loop for name across js2-token-names
           for sym = (intern (concat "js2-" name))
@@ -181,11 +181,9 @@ Returns nil and consumes nothing if TEST is not the next character."
    (and (>= c ?0) (<= c ?9))))
 
 (defsubst js2-alpha-p (c)
-  ;; Use 'Z' < 'a'
-  (if (<= c ?Z)
-      (<= ?A c)
-    (and (<= ?a c)
-         (<= c ?z))))
+  (cond ((and (<= ?A c) (<= c ?Z)) t)
+        ((and (<= ?a c) (<= c ?z)) t)
+        (t nil)))
 
 (defsubst js2-digit-p (c)
   (and (<= ?0 c) (<= c ?9)))
