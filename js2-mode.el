@@ -703,15 +703,29 @@ Sets value of `js2-magic' text property to line number at POS."
               'face 'js2-magic-paren-face))
 
 (defun js2-mode-match-delimiter (open close)
-  "Insert matching delimiter."
+  "Insert OPEN (a string) and possibly matching delimiter CLOSE.
+The rule we use, which as far as we can tell is how Eclipse works,
+is that we insert the match if we're not in a comment or string,
+and the next non-whitespace character is either punctuation or
+occurs on another line."
   (insert open)
-  (unless (or (not (looking-at "\\s-*\\([])]\\|$\\)"))
-              (js2-mode-inside-comment-or-string))
+  (when (and (looking-at "\\s-*\\([[:punct:]]\\|$\\)")
+             (not (js2-mode-inside-comment-or-string)))
     (save-excursion
       (insert (js2-make-magic-delimiter close)))
     (when js2-auto-indent-p
       (let ((js2-bounce-indent-p (js2-code-at-bol-p)))
         (js2-indent-line)))))
+
+(defun js2-mode-match-bracket ()
+  "Insert matching bracket."
+  (interactive)
+  (js2-mode-match-delimiter "[" "]"))
+
+(defun js2-mode-match-paren ()
+  "Insert matching paren unless already inserted."
+  (interactive)
+  (js2-mode-match-delimiter "(" ")"))
 
 (defun js2-mode-match-curly (arg)
   "Insert matching curly-brace.
@@ -785,16 +799,6 @@ already have been inserted."
           (js2-with-unmodifying-text-property-changes
             (put-text-property beg (or end (1+ beg))
                                'face 'js2-magic-paren-face))))))
-
-(defun js2-mode-match-bracket ()
-  "Insert matching bracket."
-  (interactive)
-  (js2-mode-match-delimiter "[" "]"))
-
-(defun js2-mode-match-paren ()
-  "Insert matching paren unless already inserted."
-  (interactive)
-  (js2-mode-match-delimiter "(" ")"))
 
 (defun js2-mode-mundanify-parens ()
   "Clear all magic parens and brackets."
