@@ -146,7 +146,6 @@ VAR, if non-nil, is the expression that NODE is being assigned to."
         (push (setq qname (list fname-node (js2-node-pos node)))
               js2-imenu-recorder)
         (js2-record-function-qname node qname))
-
        ;; for remaining forms, compute left-side tree branch first
        ((and var (setq qname (js2-compute-nested-prop-get var)))
         (cond
@@ -315,7 +314,6 @@ list of elements built up so far."
         (if trie
             (setcdr (last trie) (list (js2-treeify chain)))
           (setq trie (list (js2-treeify chain)))))
-
        ;; case 2:  key is present with a single number entry:  replace w/ list
        ;;  ("a1" 10)  +  ("a1" 20) => ("a1" (("<definition>" 10)
        ;;                                    ("<definition>" 20)))
@@ -325,7 +323,6 @@ list of elements built up so far."
                       (if pos
                           (list "<definition-2>" pos)
                         (js2-treeify tail)))))
-
        ;; case 3:  key is there (with kids), and we're a number entry
        (pos
         (setcdr (last kids)
@@ -391,7 +388,6 @@ i.e. one or more nodes, and an integer position as the list tail."
                        ")"))
              chains
              "\n"))
-
 
 (provide 'js2-browse)
 

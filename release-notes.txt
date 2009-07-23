@@ -1,5 +1,8 @@
 New in svn:
   - made "import" and "export" reserved words (Issue 100)
+  - fixed Issue 80 (parser confuses quotes in a regexp with a true string)
+  - fixed Issue 87 (fontification of comments inconsistent with other modes)
+  - fixed Issue 105 (mixed EOL confuse js2-mode)
 
 New for 20090723 release:
   - support over 25 more jsdoc tags

@@ -123,15 +123,12 @@ Also updates `js2-ts-hit-eof' and `js2-ts-line-start' as needed."
         (setq js2-ts-hit-eof t
               js2-ts-cursor (1+ js2-ts-cursor)
               c js2-EOF_CHAR)  ; return value
-
       ;; otherwise read next char
       (setq c (char-before (incf js2-ts-cursor)))
-
       ;; if we read a newline, update counters
       (if (= c ?\n)
           (setq js2-ts-line-start js2-ts-cursor
                 js2-ts-lineno (1+ js2-ts-lineno)))
-
       ;; TODO:  skip over format characters
       c)))
 
@@ -190,17 +187,18 @@ Returns nil and consumes nothing if TEST is not the next character."
 
 (defsubst js2-js-space-p (c)
   (if (<= c 127)
-      (memq c '(#x20 #x9 #xC #xB))
+      (memq c '(#x20 #x9 #xB #xC #xD))
     (or
      (eq c #xA0)
      ;; TODO:  change this nil to check for Unicode space character
      nil)))
 
+(defconst js2-eol-chars (list js2-EOF_CHAR ?\n ?\r))
+
 (defsubst js2-skip-line ()
   "Skip to end of line"
   (let (c)
-    (while (and (/= js2-EOF_CHAR (setq c (js2-get-char)))
-                (/= c ?\n)))
+    (while (not (memq (setq c (js2-get-char)) js2-eol-chars)))
     (js2-unget-char)
     (setq js2-token-end js2-ts-cursor)))
 
@@ -417,13 +415,10 @@ corresponding number.  Otherwise return -1."
             (if (/= c ?-)               ; in case end of HTML comment
                 (setq js2-ts-dirty-line t))
             (setq continue nil))))
-
         ;; Assume the token will be 1 char - fixed up below.
         (js2-ts-set-char-token-bounds)
-
         (when (eq c ?@)
           (throw 'return js2-XMLATTR))
-
         ;; identifier/keyword/instanceof?
         ;; watch out for starting with a <backslash>
         (cond
@@ -440,7 +435,6 @@ corresponding number.  Otherwise return -1."
           (when (setq identifier-start (js2-java-identifier-start-p c))
             (setq js2-ts-string-buffer nil)
             (js2-add-to-string c))))
-
         (when identifier-start
           (setq contains-escape is-unicode-escape-start)
           (catch 'break
@@ -478,12 +472,10 @@ corresponding number.  Otherwise return -1."
                       (throw 'break nil))
                   (js2-add-to-string c))))))
           (js2-unget-char)
-
           (setq str (js2-get-string-from-buffer))
           (unless contains-escape
             ;; OPT we shouldn't have to make a string (object!) to
             ;; check if it's a keyword.
-
             ;; Return the corresponding token if it's a keyword
             (when (setq result (js2-string-to-keyword str))
               (if (and (< js2-language-version 170)
@@ -493,11 +485,9 @@ corresponding number.  Otherwise return -1."
               (if (neq result js2-RESERVED)
                   (throw 'return (js2-token-code result)))
               (js2-report-warning "msg.reserved.keyword" str)))
-
           ;; If we want to intern these as Rhino does, just use (intern str)
           (setq js2-ts-string str)
           (throw 'return js2-NAME))     ; end identifier/kwd check
-
         ;; is it a number?
         (when (or (js2-digit-p c)
                   (and (eq c ?.) (js2-digit-p (js2-peek-char))))
@@ -513,7 +503,6 @@ corresponding number.  Otherwise return -1."
               (setq base 8))
              (t
               (js2-add-to-string ?0))))
-
           (if (eq base 16)
               (while (<= 0 (js2-x-digit-to-int c 0))
                 (js2-add-to-string c)
@@ -529,9 +518,7 @@ corresponding number.  Otherwise return -1."
                 (setq base 10))
               (js2-add-to-string c)
               (setq c (js2-get-char))))
-
           (setq is-integer t)
-
           (when (and (eq base 10) (memq c '(?. ?e ?E)))
             (setq is-integer nil)
             (when (eq c ?.)
@@ -551,7 +538,6 @@ corresponding number.  Otherwise return -1."
                     (js2-add-to-string c)
                     (setq c (js2-get-char))
                     while (js2-digit-p c))))
-
           (js2-unget-char)
           (setq js2-ts-string (js2-get-string-from-buffer)
                 js2-ts-number
@@ -561,7 +547,6 @@ corresponding number.  Otherwise return -1."
                   ;; js2-util.el, but I need to port ScriptRuntime.stringToNumber.
                   (string-to-number js2-ts-string)))
           (throw 'return js2-NUMBER))
-
         ;; is it a string?
         (when (memq c '(?\" ?\'))
           ;; We attempt to accumulate a string the fast way, by
@@ -579,7 +564,6 @@ corresponding number.  Otherwise return -1."
                   (setq js2-token-end js2-ts-cursor)
                   (js2-report-error "msg.unterminated.string.lit")
                   (throw 'return js2-STRING))
-
                 (when (eq c ?\\)
                   ;; We've hit an escaped character
                   (setq c (js2-get-char))
@@ -662,7 +646,6 @@ corresponding number.  Otherwise return -1."
                 (setq c (js2-get-char)))))
           (setq js2-ts-string (js2-get-string-from-buffer))
           (throw 'return js2-STRING))
-
         (case c
           (?\;
            (throw 'return js2-SEMI))
@@ -729,7 +712,6 @@ corresponding number.  Otherwise return -1."
                  (setq js2-ts-comment-type 'html)
                  (throw 'return js2-COMMENT)))
              (js2-unget-char))
-
            (if (js2-match-char ?<)
                (if (js2-match-char ?=)
                    (js2-ts-return js2-ASSIGN_LSH)
@@ -753,15 +735,15 @@ corresponding number.  Otherwise return -1."
            (if (js2-match-char ?=)
                (js2-ts-return js2-ASSIGN_MUL)
              (throw 'return js2-MUL)))
-
           (?/
            ;; is it a // comment?
            (when (js2-match-char ?/)
              (setq js2-token-beg (- js2-ts-cursor 2))
              (js2-skip-line)
              (setq js2-ts-comment-type 'line)
+             ;; include newline so highlighting goes to end of window
+             (incf js2-token-end)
              (throw 'return js2-COMMENT))
-
            ;; is it a /* comment?
            (when (js2-match-char ?*)
              (setq look-for-slash nil
@@ -787,11 +769,9 @@ corresponding number.  Otherwise return -1."
                 (t
                  (setq look-for-slash nil
                        js2-token-end js2-ts-cursor)))))
-
            (if (js2-match-char ?=)
                (js2-ts-return js2-ASSIGN_DIV)
              (throw 'return js2-DIV)))
-
            (?#
             (when js2-skip-preprocessor-directives
               (js2-skip-line)
@@ -799,7 +779,6 @@ corresponding number.  Otherwise return -1."
                     js2-token-end js2-ts-cursor)
               (throw 'return js2-COMMENT))
             (throw 'return js2-ERROR))
-
           (?%
            (if (js2-match-char ?=)
                (js2-ts-return js2-ASSIGN_MOD)
@@ -829,7 +808,6 @@ corresponding number.  Otherwise return -1."
              (setq c js2-SUB)))
            (setq js2-ts-dirty-line t)
            (js2-ts-return c))
-
           (otherwise
            (js2-report-scan-error "msg.illegal.character")))))))
 
@@ -843,13 +821,11 @@ corresponding number.  Otherwise return -1."
     (setq js2-token-beg js2-ts-cursor
           js2-ts-string-buffer nil
           js2-ts-regexp-flags nil)
-
     (if (eq start-token js2-ASSIGN_DIV)
         ;; mis-scanned /=
         (js2-add-to-string ?=)
       (if (neq start-token js2-DIV)
           (error "failed assertion")))
-
     (while (and (not err)
                 (or (/= (setq c (js2-get-char)) ?/)
                     in-class))
@@ -864,14 +840,11 @@ corresponding number.  Otherwise return -1."
            ((= c ?\\)
             (js2-add-to-string c)
             (setq c (js2-get-char)))
-
            ((= c ?\[)
             (setq in-class t))
-
            ((= c ?\])
             (setq in-class nil)))
           (js2-add-to-string c))))
-
     (unless err
       (while continue
         (cond
@@ -916,7 +889,6 @@ corresponding number.  Otherwise return -1."
               (cond
                ((= c js2-EOF_CHAR)
                 (throw 'return js2-ERROR))
-
                (js2-ts-xml-is-tag-content
                 (case c
                   (?>
@@ -950,7 +922,6 @@ corresponding number.  Otherwise return -1."
                            (zerop js2-ts-xml-open-tags-count))
                   (setq js2-ts-string (js2-get-string-from-buffer))
                   (throw 'return js2-XMLEND)))
-
                (t
                 ;; else not tag content
                 (case c

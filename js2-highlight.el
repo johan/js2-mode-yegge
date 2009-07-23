@@ -96,7 +96,6 @@ Shown at or above `js2-highlight-level' 2.")
   "Properties of the Ecma-262 Date constructor.
 Shown at or above `js2-highlight-level' 2.")
 
-
 (defconst js2-ecma-math-props
   (concat "^"
           (regexp-opt
@@ -105,7 +104,6 @@ Shown at or above `js2-highlight-level' 2.")
           "$")
   "Properties of the Ecma-262 Math object.
 Shown at or above `js2-highlight-level' 2.")
-
 
 (defconst js2-ecma-math-funcs
   (concat "^"
@@ -221,7 +219,6 @@ The variable `js2-highlight-level' governs this highighting."
           (setq pos (js2-node-pos node)
                 end (+ pos (js2-node-len node)))
           (js2-set-face pos end face))))
-
      ;; case 2:  property access or function call
      ((or (js2-prop-get-node-p node)
           ;; highlight function call if expr is a prop-get node
@@ -436,18 +433,15 @@ of a simple name.  Called before EXPR has a parent node."
        ;; var foo = function() {...}
        ((js2-name-node-p left)
         (setq name left))
-
        ;; foo.bar.baz = function() {...}
        ((and (js2-prop-get-node-p left)
              (js2-name-node-p (js2-prop-get-node-right left)))
         (setq name (js2-prop-get-node-right left))))
-
       (when name
         (js2-set-face (setq leftpos (js2-node-abs-pos name))
                       (+ leftpos (js2-node-len name))
                       'font-lock-function-name-face
                       'record)))
-
     ;; save variable assignments so we can check for undeclared later
     ;; (can't do it here since var decls can come at end of script)
     (when (and js2-highlight-external-variables

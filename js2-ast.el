@@ -2726,22 +2726,17 @@ You should use `js2-print-tree' instead of this function."
        ((and (= tt js2-EXPR_VOID)
              (js2-expr-stmt-node-p node)) ; but not if EXPR_RESULT
         (js2-node-has-side-effects (js2-expr-stmt-node-expr node)))
-
        ((= tt js2-COMMA)
         (js2-node-has-side-effects (js2-infix-node-right node)))
-
        ((or (= tt js2-AND)
             (= tt js2-OR))
         (or (js2-node-has-side-effects (js2-infix-node-right node))
             (js2-node-has-side-effects (js2-infix-node-left node))))
-
        ((= tt js2-HOOK)
         (and (js2-node-has-side-effects (js2-cond-node-true-expr node))
              (js2-node-has-side-effects (js2-cond-node-false-expr node))))
-
        ((js2-paren-node-p node)
         (js2-node-has-side-effects (js2-paren-node-expr node)))
-
        ((= tt js2-ERROR) ; avoid cascaded error messages
         nil)
        (t
@@ -2916,10 +2911,8 @@ Returns logical OR of END_* flags."
             (js2-set-flag rv (js2-end-check-block c))
           (setq default-case c)
           (throw 'break nil))))
-
     ;; we don't care how the cases drop into each other
     (js2-clear-flag rv js2-END_DROPS_OFF)
-
     ;; examine the default
     (js2-set-flag rv (if default-case
                          (js2-end-check default-case)
@@ -2939,15 +2932,12 @@ Returns logical OR of END_* flags."
    (setq rv (if finally
                 (js2-end-check (js2-finally-node-body finally))
               js2-END_DROPS_OFF))
-
    ;; If the finally block always returns, then none of the returns
    ;; in the try or catch blocks matter.
    (when (js2-flag-set-p rv js2-END_DROPS_OFF)
      (js2-clear-flag rv js2-END_DROPS_OFF)
-
      ;; examine the try block
      (js2-set-flag rv (js2-end-check (js2-try-node-try-block node)))
-
      ;; check each catch block
      (dolist (cb (js2-try-node-catch-clauses node))
        (js2-set-flag rv (js2-end-check (js2-catch-node-block cb)))))
@@ -3036,44 +3026,33 @@ Returns logical OR of END_* flags"
     (cond
      ((js2-break-node-p node)
       (js2-end-check-break node))
-
      ((js2-expr-stmt-node-p node)
       (if (setq kid (js2-expr-stmt-node-expr node))
           (js2-end-check kid)
         js2-END_DROPS_OFF))
-
      ((or (js2-continue-node-p node)
           (js2-throw-node-p node))
       js2-END_UNREACHED)
-
      ((js2-return-node-p node)
       (if (setq kid (js2-return-node-retval node))
           js2-END_RETURNS_VALUE
         js2-END_RETURNS))
-
      ((js2-loop-node-p node)
       (js2-end-check-loop node))
-
      ((js2-switch-node-p node)
       (js2-end-check-switch node))
-
      ((js2-labeled-stmt-node-p node)
       (js2-end-check-label node))
-
      ((js2-if-node-p node)
       (js2-end-check-if node))
-
      ((js2-try-node-p node)
       (js2-end-check-try node))
-
      ((js2-block-node-p node)
       (if (null (js2-block-node-kids node))
           js2-END_DROPS_OFF
         (js2-end-check-block node)))
-
      ((js2-yield-node-p node)
       js2-END_YIELDS)
-
      (t
       js2-END_DROPS_OFF))))
 
