@@ -857,7 +857,7 @@ Sets value of `js2-magic' text property to line number at POS."
   (let* ((here (point))
          (parse-status (parse-partial-sexp (point-min) here))
          (open-pos (nth 1 parse-status))
-         (close last-input-char)
+         (close last-input-event)
          (open (cond
                 ((eq close ?\))
                  ?\()
