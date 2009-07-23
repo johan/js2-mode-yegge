@@ -1,3 +1,6 @@
+New in svn:
+  - made "import" and "export" reserved words (Issue 100)
+
 New for 20090723 release:
   - support over 25 more jsdoc tags
 

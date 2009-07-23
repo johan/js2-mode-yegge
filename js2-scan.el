@@ -299,10 +299,10 @@ The values are default faces to use for highlighting the keywords.")
     boolean byte
     char class
     double
-    enum extends
+    enum export extends
     final float
     goto
-    implements int interface
+    implements import int interface
     long
     native
     package private protected public
