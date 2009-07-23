@@ -323,6 +323,7 @@ leaving a statement, an expression, or a function definition."
         (case-fold-search nil)
         ast)
     (or buf (setq buf (current-buffer)))
+    (message nil)  ; clear any error message from previous parse
     (save-excursion
       (set-buffer buf)
       (setq js2-scanned-comments nil
@@ -398,14 +399,19 @@ Scanner should be initialized."
 
 (defun js2-parse-function-closure-body (fn-node)
   "Parse a JavaScript 1.8 function closure body."
-  (let* ((js2-nesting-of-function (1+ js2-nesting-of-function))
-         (pn (js2-parse-expr)))
-    (setf (js2-function-node-body fn-node) pn)
-    (js2-node-add-children fn-node pn)
-    pn))
-  
+  (let ((js2-nesting-of-function (1+ js2-nesting-of-function)))
+    (if js2-ts-hit-eof
+        (js2-report-error "msg.no.brace.body" nil
+                          (js2-node-pos fn-node)
+                          (- js2-ts-cursor (js2-node-pos fn-node)))
+      (js2-node-add-children fn-node
+                             (setf (js2-function-node-body fn-node)
+                                   (js2-parse-expr))))))
+
 (defun js2-parse-function-body (fn-node)
-  (js2-must-match js2-LC "msg.no.brace.body")
+  (js2-must-match js2-LC "msg.no.brace.body"
+                  (js2-node-pos fn-node)
+                  (- js2-ts-cursor (js2-node-pos fn-node)))
   (let ((pos js2-token-beg)         ; LC position
         (pn (make-js2-block-node))  ; starts at LC position
         tt
