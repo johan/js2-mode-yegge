@@ -1,7 +1,7 @@
 ;;; js2-mode.el --- an improved JavaScript editing mode
 
 ;; Author:  Steve Yegge (steve.yegge@gmail.com)
-;; Version: 20090722
+;; Version: 20090723
 ;; Keywords:  javascript languages
 
 ;; This program is free software; you can redistribute it and/or

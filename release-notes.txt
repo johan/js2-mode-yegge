@@ -1,4 +1,4 @@
-New for tbd release:
+New for 20090723 release:
   - support over 25 more jsdoc tags
 
 New for 20090722 release:
