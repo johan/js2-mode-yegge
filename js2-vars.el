@@ -44,7 +44,7 @@ nil, zero or negative means none.
                  (const :tag "Include Properties" 2)
                  (const :tag "Include Functions" 3)))
   
-(defvar js2-mode-dev-mode-p t
+(defvar js2-mode-dev-mode-p nil
   "Non-nil if running in development mode.  Normally nil.")
 
 (defgroup js2-mode nil
@@ -54,14 +54,14 @@ nil, zero or negative means none.
 (defcustom js2-basic-offset (if (and (boundp 'c-basic-offset)
                                      (numberp c-basic-offset))
                                 c-basic-offset
-                              2)
+                              4)
   "Number of spaces to indent nested statements.
 Similar to `c-basic-offset'."
   :group 'js2-mode
   :type 'integer)
 (make-variable-buffer-local 'js2-basic-offset)
 
-(defcustom js2-cleanup-whitespace t
+(defcustom js2-cleanup-whitespace nil
   "Non-nil to invoke `delete-trailing-whitespace' before saves."
   :type 'boolean
   :group 'js2-mode)
@@ -83,13 +83,13 @@ so this behavior is customizable."
   :group 'js2-mode
   :type 'boolean)
 
-(defcustom js2-auto-indent-p t
+(defcustom js2-auto-indent-p nil
   "Automatic indentation with punctuation characters. If non-nil, the
 current line is indented when certain punctuations are inserted."
   :group 'js2-mode
   :type 'boolean)
 
-(defcustom js2-bounce-indent-p t
+(defcustom js2-bounce-indent-p nil
   "Non-nil to have indent-line function choose among alternatives.
 If nil, the indent-line function will indent to a predetermined column
 based on heuristic guessing.  If non-nil, then if the current line is
@@ -106,7 +106,7 @@ This is unusual for Emacs modes but common in IDEs like Eclipse."
   :type 'boolean
   :group 'js2-mode)
 
-(defcustom js2-enter-indents-newline t
+(defcustom js2-enter-indents-newline nil
   "Non-nil to have Enter/Return key indent the newly-inserted line.
 This is unusual for Emacs modes but common in IDEs like Eclipse."
   :type 'boolean
