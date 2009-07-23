@@ -85,10 +85,14 @@ Rewrites some of the code on the fly."
     (copy-file outfile (concat js2-build-directory "js2-"
                                (js2-build-version-number)
                                ".el")
-               t) ; overwrite
+               'overwrite)
     (if (get-buffer "*Compile-Log*")
         (kill-buffer "*Compile-Log*"))
     (byte-compile-file outfile)
+    (let ((dest (format "%sjs2-emacs%d.elc" js2-build-directory
+                       emacs-major-version)))
+      (copy-file (format "%sc" outfile) dest 'overwrite)
+      (message "Wrote %s" dest))
     (pop-to-buffer "js2.el")
     (toggle-read-only 1)
     (pop-to-buffer "*Compile-Log*")
