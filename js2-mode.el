@@ -239,7 +239,7 @@ You can disable this by customizing `js2-cleanup-whitespace'."
       ;; don't change trailing whitespace on current line
       (unless (eq (current-column) col)
         (indent-to col)))))
-      
+
 (defsubst js2-mode-reset-timer ()
   (if js2-mode-parse-timer
       (cancel-timer js2-mode-parse-timer))
@@ -248,7 +248,16 @@ You can disable this by customizing `js2-cleanup-whitespace'."
         (run-with-idle-timer js2-idle-timer-delay nil #'js2-reparse)))
 
 (defun js2-mode-edit (beg end len)
-  "Schedule a new parse after buffer is edited."
+  "Schedule a new parse after buffer is edited.
+Also clears the `js2-magic' bit on autoinserted parens/brackets
+if the edit occurred on a line different from the magic paren."
+  (let* ((magic-pos (next-single-property-change (point-min) 'js2-magic))
+         (line (if magic-pos (line-number-at-pos magic-pos))))
+    (and line
+         (or (/= (line-number-at-pos beg) line)
+             (and (> 0 len)
+                  (/= (line-number-at-pos end) line)))
+         (js2-mode-mundanify-parens)))
   (setq js2-mode-buffer-dirty-p t)
   (js2-mode-hide-overlay)
   (js2-mode-reset-timer))
@@ -300,6 +309,7 @@ buffer will only rebuild its `js2-mode-ast' if the buffer is dirty."
                              (js2-mode-show-warnings)
                              (js2-mode-show-errors)
                              (js2-mode-run-font-lock)  ; note:  doesn't work
+                             (js2-mode-highlight-magic-parens)
                              (if (>= js2-highlight-level 1)
                                  (js2-highlight-jsdoc js2-mode-ast))
                              nil))))
@@ -370,18 +380,25 @@ E is a list of ((MSG-KEY MSG-ARG) BEG END)."
          (js2-highlight-level 3)    ; so js2-set-face is sure to fire
          (ovl (make-overlay beg end)))
     (overlay-put ovl 'face face)
-    (overlay-put ovl 'js2 t)
+    (overlay-put ovl 'js2-error t)
     (put-text-property beg end 'help-echo (js2-get-msg key))
     (put-text-property beg end 'point-entered #'js2-echo-error)))
 
 (defun js2-remove-overlays ()
-  "Remove overlays from buffer that have a `js2' property."
+  "Remove overlays from buffer that have a `js2-error' property."
   (let ((beg (point-min))
         (end (point-max)))
     (save-excursion
       (dolist (o (overlays-in beg end))
-        (when (overlay-get o 'js2)
+        (when (overlay-get o 'js2-error)
           (delete-overlay o))))))
+
+(defun js2-error-at-point (&optional pos)
+  "Return non-nil if there's an error overlay at POS.
+Defaults to point."
+  (loop with pos = (or pos (point))
+        for o in (overlays-at pos)
+        thereis (overlay-get o 'js2-error)))
 
 (defun js2-mode-fontify-regions ()
   "Apply fontifications recorded during parsing."
@@ -459,11 +476,11 @@ This ensures that the counts and `next-error' are correct."
      (t
       ;; should probably figure out what the mode-map says we should do
       (if js2-indent-on-enter-key
-          (let ((js2-bounce-indent-flag nil))
+          (let ((js2-bounce-indent-p nil))
             (js2-indent-line)))
       (insert "\n")
       (if js2-enter-indents-newline
-          (let ((js2-bounce-indent-flag nil))
+          (let ((js2-bounce-indent-p nil))
             (js2-indent-line)))))))
 
 (defun js2-mode-split-string (parse-status)
@@ -690,16 +707,17 @@ is simply inserted directly at the point."
      (current-prefix-arg
       (save-excursion
         (insert "}")))
-
      (try-pos
       (js2-insert-catch-skel try-pos))
-
      (t
       ;; Otherwise try to do something smarter.
       (unless (or (not (looking-at "\\s-*$"))
+                  (save-excursion
+                    (skip-chars-forward " \t\r\n")
+                    (and (looking-at "}")
+                         (js2-error-at-point)))
                   (js2-mode-inside-comment-or-string))
         (undo-boundary)
-
         ;; absolutely mystifying bug:  when inserting the next "\n",
         ;; the buffer-undo-list is given two new entries:  the inserted range,
         ;; and the incorrect position of the point.  It's recorded incorrectly
@@ -711,11 +729,10 @@ is simply inserted directly at the point."
         (insert "\n")
         (ignore-errors
           (incf (cadr buffer-undo-list)))
-
         (js2-indent-line)
         (save-excursion
           (insert "\n}")
-          (let ((js2-bounce-indent-flag (js2-code-at-bol-p)))
+          (let ((js2-bounce-indent-p (js2-code-at-bol-p)))
             (js2-indent-line))))))))
 
 (defun js2-insert-catch-skel (try-pos)
@@ -737,30 +754,54 @@ already have been inserted."
       (insert "} catch (x) {\n\n")
       (indent-to try-col)
       (insert "}"))))
-  
+
+(defsubst js2-make-magic-delimiter (delim &optional pos)
+  "Add `js2-magic' and `js2-magic-paren-face' to DELIM, a string.
+Sets value of `js2-magic' text property to line number at POS."
+  (propertize delim
+              'js2-magic (line-number-at-pos pos)
+              'face 'js2-magic-paren-face))
+
+(defun js2-mode-highlight-magic-parens ()
+  "Re-highlight magic parens after parsing nukes the 'face prop."
+  (let ((beg (point-min))
+        end)
+    (while (setq beg (next-single-property-change beg 'js2-magic))
+      (setq end (next-single-property-change (1+ beg) 'js2-magic))
+      (if (get-text-property beg 'js2-magic)
+          (js2-with-unmodifying-text-property-changes
+            (put-text-property beg (or end (1+ beg))
+                               'face 'js2-magic-paren-face))))))
+
+(defun js2-mode-match-delimiter (open close)
+  "Insert matching delimiter."
+  (insert open)
+  (unless (or (not (looking-at "\\s-*\\([])]\\|$\\)"))
+              (js2-mode-inside-comment-or-string))
+    (save-excursion
+      (insert (js2-make-magic-delimiter close)))
+    (when js2-auto-indent-p
+      (let ((js2-bounce-indent-p (js2-code-at-bol-p)))
+        (js2-indent-line)))))
+
 (defun js2-mode-match-bracket ()
   "Insert matching bracket."
   (interactive)
-  (insert "[")
-  (unless (or (not (looking-at "\\s-*$"))
-              (js2-mode-inside-comment-or-string))
-    (save-excursion
-      (insert "]"))
-    (when js2-auto-indent-p
-      (let ((js2-bounce-indent-flag (js2-code-at-bol-p)))
-        (js2-indent-line)))))
+  (js2-mode-match-delimiter "[" "]"))
 
 (defun js2-mode-match-paren ()
   "Insert matching paren unless already inserted."
   (interactive)
-  (insert "(")
-  (unless (or (not (looking-at "\\s-*$"))
-              (js2-mode-inside-comment-or-string))
-    (save-excursion
-      (insert ")"))
-    (when js2-auto-indent-p
-      (let ((js2-bounce-indent-flag (js2-code-at-bol-p)))
-        (js2-indent-line)))))
+  (js2-mode-match-delimiter "(" ")"))
+
+(defun js2-mode-mundanify-parens ()
+  "Clear all magic parens and brackets."
+  (let ((beg (point-min))
+        end)
+    (while (setq beg (next-single-property-change beg 'js2-magic))
+      (setq end (next-single-property-change (1+ beg) 'js2-magic))
+      (remove-text-properties beg (or end (1+ beg))
+                              '(js2-magic face)))))
 
 (defsubst js2-match-quote (quote-string)
   (let ((start-quote (js2-mode-inside-string)))
@@ -790,7 +831,7 @@ already have been inserted."
                 (concat "\\" quote-string))))
      (t
       (insert quote-string)))))        ; else terminate the string
-      
+
 (defun js2-mode-match-single-quote ()
   "Insert matching single-quote."
   (interactive)
@@ -805,26 +846,34 @@ already have been inserted."
   (interactive)
   (js2-match-quote "\""))
 
+;; Eclipse works as follows:
+;;  * type an open-paren and it auto-inserts close-paren
+;;    - auto-inserted paren gets a green bracket
+;;    - green bracket means typing close-paren there will skip it
+;;  * if you insert any text on a different line, it turns off
 (defun js2-mode-magic-close-paren ()
-  "Skip over close-paren rather than inserting, where appropriate.
-Uses some heuristics to try to figure out the right thing to do."
+  "Skip over close-paren rather than inserting, where appropriate."
   (interactive)
-  (let* ((parse-status (parse-partial-sexp (point-min) (point)))
+  (let* ((here (point))
+         (parse-status (parse-partial-sexp (point-min) here))
          (open-pos (nth 1 parse-status))
          (close last-input-char)
          (open (cond
-                ((eq close 41)  ; close-paren
-                 40)            ; open-paren
-                ((eq close 93)  ; close-bracket
-                 91)            ; open-bracket
+                ((eq close ?\))
+                 ?\()
+                ((eq close ?\])
+                 ?\[)
                 ((eq close ?})
                  ?{)
                 (t nil))))
-    (if (and (looking-at (string close))
+    (if (and (eq (char-after) close)
              (eq open (char-after open-pos))
-             (js2-same-line open-pos))
-        (forward-char 1)
-      (insert (string close)))
+             (js2-same-line open-pos)
+             (get-text-property here 'js2-magic))
+        (progn
+          (remove-text-properties here (1+ here) '(js2-magic face))
+          (forward-char 1))
+      (insert-char close 1))
     (blink-matching-open)))
 
 (defun js2-mode-wait-for-parse (callback)
@@ -909,7 +958,7 @@ Returns nil if point is not in a function."
             (back-to-indentation)
             (looking-at js2-mode-//-comment-re))
           (js2-mode-toggle-//-comment))
-        
+
          ;; function?
          ((setq fn (js2-mode-function-at-point))
           (setq pos (and (js2-function-node-body fn)

@@ -11,6 +11,16 @@ New for 20090722 release:
   - added support for auto-completing try/catch blocks
   - set mode-specific c-comment-start-regexp
   - added 4-space indent option for expression continuation lines
+  - completely overhauled "magic"-paren logic to be less annoying
+    and more like the Eclipse behavior it was originally inspired by:
+    - autoinserted parens/brackets are now highlighted
+    - if you make an edit on a different line, all magic turns off
+    - we only auto-overwrite a paren/bracket if it's currently magic
+    - we DO auto-insert if preceding a nonmagic close-paren/brace
+    - we highlight magic parens with `js2-magic-paren-face'
+    - auto-overwriting a magic delimiter makes it nonmagic
+  - we no longer auto-insert a close-curly if the next non-whitespace
+    character in the buffer is a close-curly with an error overlay.
 
 Since 2008330:
 

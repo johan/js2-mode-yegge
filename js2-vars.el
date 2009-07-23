@@ -961,6 +961,11 @@ Not currently used."
   "Face used to highlight brackets in jsdoc html tags."
   :group 'js2-mode)
 
+(defface js2-magic-paren-face
+  '((t :underline t))
+  "Face used to color parens that will be auto-overwritten."
+  :group 'js2-mode)
+
 (defcustom js2-post-parse-callbacks nil
   "A list of callback functions invoked after parsing finishes.
 Currently, the main use for this function is to add synthetic
