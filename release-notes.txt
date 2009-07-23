@@ -21,6 +21,9 @@ New for 20090722 release:
     - auto-overwriting a magic delimiter makes it nonmagic
   - we no longer auto-insert a close-curly if the next non-whitespace
     character in the buffer is a close-curly with an error overlay.
+  - added `js2-auto-insert-catch-block' defcustom variable,
+    to configure auto-insertion of catch-blocks
+  - prefix-arg plus open-curly => close-curly becomes magic
 
 Since 2008330:
 

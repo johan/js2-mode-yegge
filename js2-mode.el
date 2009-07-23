@@ -695,22 +695,41 @@ Actually returns the quote character that begins the string."
      (or (nth 3 parse-state)
          (nth 4 parse-state)))))
 
+(defsubst js2-make-magic-delimiter (delim &optional pos)
+  "Add `js2-magic' and `js2-magic-paren-face' to DELIM, a string.
+Sets value of `js2-magic' text property to line number at POS."
+  (propertize delim
+              'js2-magic (line-number-at-pos pos)
+              'face 'js2-magic-paren-face))
+
+(defun js2-mode-match-delimiter (open close)
+  "Insert matching delimiter."
+  (insert open)
+  (unless (or (not (looking-at "\\s-*\\([])]\\|$\\)"))
+              (js2-mode-inside-comment-or-string))
+    (save-excursion
+      (insert (js2-make-magic-delimiter close)))
+    (when js2-auto-indent-p
+      (let ((js2-bounce-indent-p (js2-code-at-bol-p)))
+        (js2-indent-line)))))
+
 (defun js2-mode-match-curly (arg)
   "Insert matching curly-brace.
 With prefix arg, no formatting or indentation will occur -- the close-brace
 is simply inserted directly at the point."
   (interactive "p")
-  (let ((try-pos (if (looking-back "\\s-+\\(try\\)\\s-*" (point-at-bol))
-                     (match-beginning 1))))
-    (insert "{")
+  (let (try-pos)
     (cond
      (current-prefix-arg
-      (save-excursion
-        (insert "}")))
-     (try-pos
+      (js2-mode-match-delimiter "{" "}"))
+     ((and js2-auto-insert-catch-block
+           (setq try-pos (if (looking-back "\\s-*\\(try\\)\\s-*"
+                                           (point-at-bol))
+                             (match-beginning 1))))
       (js2-insert-catch-skel try-pos))
      (t
       ;; Otherwise try to do something smarter.
+      (insert "{")
       (unless (or (not (looking-at "\\s-*$"))
                   (save-excursion
                     (skip-chars-forward " \t\r\n")
@@ -742,6 +761,7 @@ the more likely of the two.
 
 TRY-POS is the buffer position of the try keyword.  The open-curly should
 already have been inserted."
+  (insert "{")
   (let ((try-col (save-excursion
                    (goto-char try-pos)
                    (current-column))))
@@ -755,13 +775,6 @@ already have been inserted."
       (indent-to try-col)
       (insert "}"))))
 
-(defsubst js2-make-magic-delimiter (delim &optional pos)
-  "Add `js2-magic' and `js2-magic-paren-face' to DELIM, a string.
-Sets value of `js2-magic' text property to line number at POS."
-  (propertize delim
-              'js2-magic (line-number-at-pos pos)
-              'face 'js2-magic-paren-face))
-
 (defun js2-mode-highlight-magic-parens ()
   "Re-highlight magic parens after parsing nukes the 'face prop."
   (let ((beg (point-min))
@@ -772,17 +785,6 @@ Sets value of `js2-magic' text property to line number at POS."
           (js2-with-unmodifying-text-property-changes
             (put-text-property beg (or end (1+ beg))
                                'face 'js2-magic-paren-face))))))
-
-(defun js2-mode-match-delimiter (open close)
-  "Insert matching delimiter."
-  (insert open)
-  (unless (or (not (looking-at "\\s-*\\([])]\\|$\\)"))
-              (js2-mode-inside-comment-or-string))
-    (save-excursion
-      (insert (js2-make-magic-delimiter close)))
-    (when js2-auto-indent-p
-      (let ((js2-bounce-indent-p (js2-code-at-bol-p)))
-        (js2-indent-line)))))
 
 (defun js2-mode-match-bracket ()
   "Insert matching bracket."
