@@ -1,3 +1,6 @@
+New for tbd release:
+  - support over 25 more jsdoc tags
+
 New for 20090722 release:
 
   - added support for JavaScript 1.8 function closures
