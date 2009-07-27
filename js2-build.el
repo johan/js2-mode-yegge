@@ -1,4 +1,4 @@
-;;; js2-build.el -- Build script for js2-mode
+;;; js2-build.el --- Build script for js2-mode
 
 ;; Author:  Steve Yegge (steve.yegge@gmail.com)
 ;; Keywords:  javascript languages

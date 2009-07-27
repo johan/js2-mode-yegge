@@ -1,30 +1,30 @@
 ;;; js2-parse.el --- JavaScript parser
 
+;; Copyright (C) 2009  Free Software Foundation, Inc.
+
 ;; Author:  Steve Yegge (steve.yegge@gmail.com)
 ;; Keywords:  javascript languages
 
-;; This program is free software; you can redistribute it and/or
-;; modify it under the terms of the GNU General Public License as
-;; published by the Free Software Foundation; either version 2 of
-;; the License, or (at your option) any later version.
+;; This file is part of GNU Emacs.
 
-;; This program is distributed in the hope that it will be
-;; useful, but WITHOUT ANY WARRANTY; without even the implied
-;; warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
-;; PURPOSE.  See the GNU General Public License for more details.
+;; GNU Emacs is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
 
-;; You should have received a copy of the GNU General Public
-;; License along with this program; if not, write to the Free
-;; Software Foundation, Inc., 59 Temple Place, Suite 330, Boston,
-;; MA 02111-1307 USA
+;; GNU Emacs is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
 
-;; Commentary:
+;; You should have received a copy of the GNU General Public License
+;; along with GNU Emacs.  If not, see <http://www.gnu.org/licenses/>.
 
-;; This is based on Rhino's parser and tries to follow its code
+;;; Commentary:
+
+;; This is based on Mozilla Rhino's parser and tries to follow its
 ;; structure as closely as practical, so that changes to the Rhino
-;; parser can easily be propagated into this code.  However, Rhino
-;; does not currently generate a usable AST representation, at least
-;; from an IDE perspective, so we build our own more suitable AST.
+;; parser can easily be propagated into this code.
 
 ;; The AST node structures are defined in `js2-ast.el'.
 ;; Every parser function that creates and returns an AST node has
@@ -40,13 +40,12 @@
 ;; The resulting AST has all node start positions relative to the
 ;; parent nodes; only the root has an absolute start position.
 
-;; Note: fontification is done inline while parsing.  It used to be
-;; done in a second pass over the AST, but doing it inline is about
-;; twice as fast.  Most of the fontification happens when tokens are
-;; scanned, and the parser has a few spots that perform extra
-;; fontification.  In addition to speed, a second benefit of inline
-;; parsing is that if a long parse is interrupted, everything parsed
-;; so far is still fontified.
+;; Note: fontification is done inline while parsing, which is about
+;; twice as fast as doing it in a second pass over the AST.  Most of
+;; the fontification happens when tokens are scanned, and the parser
+;; has a few functions that perform extra fontification.  In addition
+;; to speed, a second benefit of inline parsing is that if a long
+;; parse is interrupted, everything parsed so far is still fontified.
 
 ;; The editing mode that uses this parser, `js2-mode', directs the
 ;; parser to check periodically for user input.  If user input
@@ -59,17 +58,7 @@
 ;; it left off.  It will be some work to create what amounts to a
 ;; continuation, but it should not be unreasonably difficult.
 
-;; TODO:
-;; - make non-editing input restart parse at previous continuation
-;; - in Eclipse, sibling nodes never overlap start/end ranges
-;;   - for getters, prop name and function nodes overlap
-;;   - should write a debug tree visitor to look for overlaps
-;; - mark array and object literals as "destructuring" (node prop?)
-;;   so we can syntax-highlight them properly.
-;; - figure out a way not to store value in string/name nodes
-;;   - needs a solution for synthetic nodes
-
-;;; Code
+;;; Code:
 
 (eval-and-compile
   (require 'cl))  ; for delete-if
@@ -95,6 +84,7 @@ is only true until the node is added to its parent; i.e., while parsing."
      (js2-node-len n)))
 
 (defsubst js2-record-comment ()
+  "Record a comment in `js2-scanned-comments'."
   (push (make-js2-comment-node :len (- js2-token-end js2-token-beg)
                                :format js2-ts-comment-type)
         js2-scanned-comments)

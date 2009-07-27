@@ -1,11 +1,27 @@
 ;;; js2-indent.el --- indentation for js2-mode
-;;
-;; Copyright (C) 2008 Steve Yegge
+
+;; Copyright (C) 2009  Free Software Foundation, Inc.
+
 ;; Author:  Steve Yegge (steve.yegge@gmail.com)
 ;; Maintainer:  Steve Yegge (steve.yegge@gmail.com)
 
-;; Commentary:
-;;
+;; This file is part of GNU Emacs.
+
+;; GNU Emacs is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; GNU Emacs is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with GNU Emacs.  If not, see <http://www.gnu.org/licenses/>.
+
+;;; Commentary:
+
 ;; This indenter is based on Karl Landström's "javascript.el" indenter.
 ;; Karl cleverly deduces that the desired indentation level is often a
 ;; function of paren/bracket/brace nesting depth, which can be determined
@@ -13,7 +29,7 @@
 ;; then does some equally clever checks to see if we're in the context of a
 ;; substatement of a possibly braceless statement keyword such as if, while,
 ;; or finally.  This approach yields pretty good results.
-;;
+
 ;; The indenter is often "wrong", however, and needs to be overridden.
 ;; The right long-term solution is probably to emulate (or modify)
 ;; cc-engine, but it's thousands upon thousands of lines of code.  Even
@@ -23,14 +39,14 @@
 ;; any case, relying on the parse tree is undesirable because parsing is
 ;; slow.  So you might as well go the cc-engine approach, but it's a
 ;; huge pile of work that I'm just not up for any time soon.
-;;
+
 ;; In the meantime, the compromise solution is that we offer a
 ;; "bounce indenter", configured with `js2-bounce-indent-p', which
 ;; cycles the current line indent among various likely guess points.
 ;; This approach is far from perfect, but should at least make it
 ;; slightly easier to move the line towards its desired indentation
 ;; when manually overriding Karl's heuristic nesting guesser.
-;;
+
 ;; I've made miscellaneous tweaks to Karl's code to handle some Ecma
 ;; extensions such as `let' and Array comprehensions, and will likely
 ;; make further tweaks to it, but major kudos to Karl for coming up with
@@ -57,8 +73,6 @@ of continued expressions.")
 (defsubst js2-code-at-bol-p ()
   "Return t if the first character on line is non-whitespace."
   nil)
-;;        (not (memq (char-after (point-at-bol))
-;;                   '(? ?\t)))))
 
 (defun js2-insert-and-indent (key)
   "Run command bound to key and indent current line. Runs the command

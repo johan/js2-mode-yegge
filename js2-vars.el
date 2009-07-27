@@ -1,22 +1,24 @@
-;;; js2-vars.el -- byte-compiler support for js2-mode
+;;; js2-vars.el --- variable definitions for js2-mode
+
+;; Copyright (C) 2009  Free Software Foundation, Inc.
 
 ;; Author:  Steve Yegge (steve.yegge@gmail.com)
 ;; Keywords:  javascript languages
 
-;; This program is free software; you can redistribute it and/or
-;; modify it under the terms of the GNU General Public License as
-;; published by the Free Software Foundation; either version 2 of
-;; the License, or (at your option) any later version.
+;; This file is part of GNU Emacs.
 
-;; This program is distributed in the hope that it will be
-;; useful, but WITHOUT ANY WARRANTY; without even the implied
-;; warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
-;; PURPOSE.  See the GNU General Public License for more details.
+;; GNU Emacs is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
 
-;; You should have received a copy of the GNU General Public
-;; License along with this program; if not, write to the Free
-;; Software Foundation, Inc., 59 Temple Place, Suite 330, Boston,
-;; MA 02111-1307 USA
+;; GNU Emacs is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with GNU Emacs.  If not, see <http://www.gnu.org/licenses/>.
 
 ;;; Code:
 
@@ -84,8 +86,9 @@ so this behavior is customizable."
   :type 'boolean)
 
 (defcustom js2-auto-indent-p nil
-  "Automatic indentation with punctuation characters. If non-nil, the
-current line is indented when certain punctuations are inserted."
+  "Automatic indentation with punctuation characters.
+If non-nil, the current line is indented when certain punctuations
+are inserted."
   :group 'js2-mode
   :type 'boolean)
 
@@ -113,7 +116,7 @@ This is unusual for Emacs modes but common in IDEs like Eclipse."
   :group 'js2-mode)
 
 (defcustom js2-rebind-eol-bol-keys t
-  "Non-nil to rebind beginning-of-line and end-of-line keys.
+  "Non-nil to rebind `beginning-of-line' and `end-of-line' keys.
 If non-nil, bounce between bol/eol and first/last non-whitespace char."
   :group 'js2-mode
   :type 'boolean)
@@ -307,6 +310,7 @@ which doesn't seem particularly useful, but Rhino permits it."
 ;; scanner variables
 
 (defmacro deflocal (name value &optional comment)
+  "Define a buffer-local variable NAME with VALUE and COMMENT."
   `(progn
      (defvar ,name ,value ,comment)
      (make-variable-buffer-local ',name)))
@@ -600,7 +604,7 @@ text is available in the buffer.")
 (defvar js2-parse-ide-mode t
   "Non-nil if the parser is being used for `js2-mode'.
 If non-nil, the parser will set text properties for fontification
-and the syntax-table.  The value should be nil when using the
+and the syntax table.  The value should be nil when using the
 parser as a frontend to an interpreter or byte compiler.")
 
 ;;; Parser instance variables (buffer-local vars for js2-parse)
@@ -1124,7 +1128,7 @@ First match-group is the leading whitespace.")
           "\\(//\\|/\\*[^*\n\r]*"
           "\\(\\*+[^*\n\r/][^*\n\r]*\\)*$"
           "\\|\\\\$\\|$\\)")
-  "Copied from java-mode.  Needed for some cc-engine functions.")
+  "Copied from `java-mode'.  Needed for some cc-engine functions.")
 
 (defvar js2-comment-prefix-regexp
   "//+\\|\\**")

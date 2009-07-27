@@ -1,28 +1,30 @@
 ;;; js2-mode.el --- an improved JavaScript editing mode
 
+;; Copyright (C) 2009  Free Software Foundation, Inc.
+
 ;; Author:  Steve Yegge (steve.yegge@gmail.com)
 ;; Version: 20090723
 ;; Keywords:  javascript languages
 
-;; This program is free software; you can redistribute it and/or
-;; modify it under the terms of the GNU General Public License as
-;; published by the Free Software Foundation; either version 2 of
-;; the License, or (at your option) any later version.
+;; This file is part of GNU Emacs.
 
-;; This program is distributed in the hope that it will be
-;; useful, but WITHOUT ANY WARRANTY; without even the implied
-;; warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
-;; PURPOSE.  See the GNU General Public License for more details.
+;; GNU Emacs is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
 
-;; You should have received a copy of the GNU General Public
-;; License along with this program; if not, write to the Free
-;; Software Foundation, Inc., 59 Temple Place, Suite 330, Boston,
-;; MA 02111-1307 USA
+;; GNU Emacs is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with GNU Emacs.  If not, see <http://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
 ;; This JavaScript editing mode supports:
-;;
+
 ;;  - the full JavaScript language through version 1.8
 ;;  - support for most Rhino and SpiderMonkey extensions from 1.5 to 1.8
 ;;  - accurate syntax highlighting using a recursive-descent parser
@@ -36,66 +38,35 @@
 ;;  - code browsing using the `imenu' package
 ;;  - typing helpers (e.g. inserting matching braces/parens)
 ;;  - many customization options
-;;
+
 ;; It is only compatible with GNU Emacs versions 21 and higher (not XEmacs).
-;;
+
 ;; Installation:
-;;
-;;  - put `js2.el' somewhere in your emacs load path
+
+;;  - put `js2.el' somewhere in your Emacs load path
 ;;  - M-x byte-compile-file RET <path-to-js2.el> RET
 ;;    Note:  it will refuse to run unless byte-compiled
 ;;  - add these lines to your .emacs file:
 ;;    (autoload 'js2-mode "js2" nil t)
 ;;    (add-to-list 'auto-mode-alist '("\\.js$" . js2-mode))
-;;
+
 ;; To customize how it works:
 ;;   M-x customize-group RET js2-mode RET
-;;
+
 ;; The variable `js2-mode-version' is a date stamp.  When you upgrade
 ;; to a newer version, you must byte-compile the file again.
-;;
+
 ;; Notes:
-;;
-;; This mode is different in many ways from standard Emacs language editing
-;; modes, inasmuch as it attempts to be more like an IDE.  If this drives
-;; you crazy, it IS possible to customize it to be more like other Emacs
-;; editing modes.  Please customize the group `js2-mode' to see all of the
-;; configuration options.
-;;
-;; Some of the functionality does not work in Emacs 21 -- upgrading to
-;; Emacs 22 or higher will get you better results.  If you byte-compiled
-;; js2.el with Emacs 21, you should re-compile it for Emacs 22.
-;;
+
 ;; Unlike cc-engine based language modes, js2-mode's line-indentation is not
 ;; customizable.  It is a surprising amount of work to support customizable
 ;; indentation.  The current compromise is that the tab key lets you cycle among
 ;; various likely indentation points, similar to the behavior of python-mode.
-;;
+
 ;; This mode does not yet work with "multi-mode" modes such as mmm-mode
 ;; and mumamo, although it could possibly be made to do so with some effort.
 ;; This means that js2-mode is currently only useful for editing JavaScript
 ;; files, and not for editing JavaScript within <script> tags or templates.
-;;
-;; This code is part of a larger project, in progress, to enable writing
-;; Emacs customizations in JavaScript.
-;;
-;; Please email bug reports and suggestions to the author, or submit them
-;; at http://code.google.com/p/js2-mode/issues
-
-;; TODO:
-;;  - add unreachable-code warning (error?) using the inconsistent-return analysis
-;;  - labeled stmt length is now 1
-;;  - "anonymous function does not always return a value" - use getter/setter name
-;;  - extend js2-missing-semi-one-line-override to handle catch (e) {return x}
-;;  - set a text prop on autoinserted delimiters and don't biff user-entered ones
-;;  - when inserting magic curlies, look for matching close-curly before inserting
-;;  - get more use out of the symbol table:
-;;    - jump to declaration (put hyperlinks on all non-decl var usages?)
-;;    - rename variable/function
-;;    - warn on unused var
-;;  - add some dabbrev-expansions for built-in keywords like finally, function
-;;  - add at least some completion support, e.g. for built-ins
-;;  - code formatting
 
 ;;; Code:
 
@@ -218,6 +189,7 @@
     (error "js2-mode requires GNU Emacs version 21 or higher")))
 
 (defun js2-mode-exit ()
+  "Exit `js2-mode' and clean up."
   (interactive)
   (when js2-mode-node-overlay
     (delete-overlay js2-mode-node-overlay)
@@ -241,6 +213,7 @@ You can disable this by customizing `js2-cleanup-whitespace'."
         (indent-to col)))))
 
 (defsubst js2-mode-reset-timer ()
+  "Cancel any existing parse timer and schedule a new one."
   (if js2-mode-parse-timer
       (cancel-timer js2-mode-parse-timer))
   (setq js2-mode-parsing nil)
@@ -249,6 +222,7 @@ You can disable this by customizing `js2-cleanup-whitespace'."
 
 (defun js2-mode-edit (beg end len)
   "Schedule a new parse after buffer is edited.
+Buffer edit spans from BEG to END and is of length LEN.
 Also clears the `js2-magic' bit on autoinserted parens/brackets
 if the edit occurred on a line different from the magic paren."
   (let* ((magic-pos (next-single-property-change (point-min) 'js2-magic))
@@ -350,7 +324,8 @@ buffer will only rebuild its `js2-mode-ast' if the buffer is dirty."
                    "nil"))))))
 
 (defun js2-mode-hide-overlay (&optional p1 p2)
-  "Remove the debugging overlay when the point moves."
+  "Remove the debugging overlay when the point moves.
+P1 and P2 are the old and new values of point, respectively."
   (when js2-mode-node-overlay
     (let ((beg (overlay-start js2-mode-node-overlay))
           (end (overlay-end js2-mode-node-overlay)))
@@ -364,7 +339,7 @@ buffer will only rebuild its `js2-mode-ast' if the buffer is dirty."
         (setq js2-mode-node-overlay nil)))))
 
 (defun js2-mode-reset ()
-  "Debugging helper; resets everything."
+  "Debugging helper:  reset everything."
   (interactive)
   (js2-mode-exit)
   (js2-mode))
@@ -485,7 +460,8 @@ This ensures that the counts and `next-error' are correct."
             (js2-indent-line)))))))
 
 (defun js2-mode-split-string (parse-status)
-  "Turn a newline in mid-string into a string concatenation."
+  "Turn a newline in mid-string into a string concatenation.
+PARSE-STATUS is as documented in `parse-partial-sexp'."
   (let* ((col (current-column))
          (quote-char (nth 3 parse-status))
          (quote-string (string quote-char))
@@ -557,76 +533,6 @@ This ensures that the counts and `next-error' are correct."
                    (looking-at "\\s-*//")))
         (indent-to col)
         (insert "// "))))))
-
-(defun js2-fill-string (beg quote)
-  "Line-wrap a single-line string into a multi-line string.
-BEG is the string beginning, QUOTE is the quote char."
-  (let* ((squote (string quote))
-         (end (if (re-search-forward (concat "[^\\]" squote)
-                                     (point-at-eol) t)
-                  (1+ (match-beginning 0))
-                (point-at-eol)))
-         (tag (make-marker))
-         (fill-column (- fill-column 4)))  ; make room
-    (unwind-protect
-        (progn
-          (move-marker tag end)
-          (fill-paragraph nil)
-          (goto-char beg)
-          (while (not (js2-same-line tag))
-            (goto-char (point-at-eol))
-            (insert squote)
-            (when (zerop (forward-line 1))
-              (back-to-indentation)
-              (if (looking-at (concat squote "\\s-*$"))
-                  (progn
-                    (setq end (point-at-eol))
-                    (forward-line -1)
-                    (delete-region (point-at-eol) end))
-                (insert "+ " squote)))))
-      (move-marker tag nil))))
-
-(defun js2-fill-comment (parse-status arg)
-  "Fill-paragraph in a block comment."
-  (let* ((beg (nth 8 parse-status))
-         (end (save-excursion
-                (goto-char beg)
-                (re-search-forward "[^\\]\\*/" nil t)))
-         indent
-         end-marker)
-    (when end
-      (setq end-marker (make-marker))
-      (move-marker end-marker end))
-    (when (and end js2-mode-squeeze-spaces)
-      (save-excursion
-        (save-restriction
-          (narrow-to-region beg end)
-          (goto-char (point-min))
-          (while (re-search-forward "[ \t][ \t]+" nil t)
-            (replace-match " ")))))
-    ;; `c-fill-paragraph' doesn't indent the continuation stars properly
-    ;; if the comment isn't left-justified.  They align to the first star
-    ;; on the first continuation line after the comment-open, so we make
-    ;; sure the first continuation line has the proper indentation.
-    (save-excursion
-      (goto-char beg)
-      (setq indent (1+ (current-column)))
-      (goto-char (point-at-eol))
-      (skip-chars-forward " \t\r\n")
-      (indent-line-to indent)
-
-      ;; Invoke `c-fill-paragraph' from the first continuation line,
-      ;; since it provides better results.  Otherwise if you're on the
-      ;; last line, it doesn't prefix with stars the way you'd expect.
-      ;; TODO:  write our own fill function that works in Emacs 21
-      (let ((fill-paragraph-function 'c-fill-paragraph))
-        (c-fill-paragraph arg)))
-
-    ;; last line is typically indented wrong, so fix it
-    (when end-marker
-      (save-excursion
-        (goto-char end-marker)
-        (js2-indent-line)))))
 
 (defun js2-beginning-of-line ()
   "Toggles point between bol and first non-whitespace char in line.
@@ -959,13 +865,11 @@ Returns nil if point is not in a function."
                 (goto-char pos)
                 (js2-mode-show-element))
             (js2-mode-hide-element)))
-
          ;; //-comment?
          ((save-excursion
             (back-to-indentation)
             (looking-at js2-mode-//-comment-re))
           (js2-mode-toggle-//-comment))
-
          ;; function?
          ((setq fn (js2-mode-function-at-point))
           (setq pos (and (js2-function-node-body fn)
@@ -1398,8 +1302,6 @@ it marks the next defun after the ones already marked."
          (beg (js2-node-abs-pos fn)))
     (unless (js2-ast-root-p fn)
       (narrow-to-region beg (+ beg (js2-node-len fn))))))
-
-(defalias 'js2r 'js2-mode-reset)
 
 (provide 'js2-mode)
 

@@ -1,38 +1,40 @@
 ;;; js2-browse.el --- browsing/hierarchy support for js2-mode
 
+;; Copyright (C) 2009  Free Software Foundation, Inc.
+
 ;; Author:  Steve Yegge (steve.yegge@gmail.com)
 ;; Keywords:  javascript languages
 
-;; This program is free software; you can redistribute it and/or
-;; modify it under the terms of the GNU General Public License as
-;; published by the Free Software Foundation; either version 2 of
-;; the License, or (at your option) any later version.
+;; This file is part of GNU Emacs.
 
-;; This program is distributed in the hope that it will be
-;; useful, but WITHOUT ANY WARRANTY; without even the implied
-;; warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
-;; PURPOSE.  See the GNU General Public License for more details.
+;; GNU Emacs is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
 
-;; You should have received a copy of the GNU General Public
-;; License along with this program; if not, write to the Free
-;; Software Foundation, Inc., 59 Temple Place, Suite 330, Boston,
-;; MA 02111-1307 USA
+;; GNU Emacs is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
 
-;; Commentary:
-;;
+;; You should have received a copy of the GNU General Public License
+;; along with GNU Emacs.  If not, see <http://www.gnu.org/licenses/>.
+
+;;; Commentary:
+
 ;; We currently only support imenu, but eventually should support speedbar and
 ;; possibly other browsing mechanisms.
-;;
+
 ;; The basic strategy is to identify function assignment targets of the form
 ;; `foo.bar.baz', convert them to (list foo bar baz <position>), and push the
 ;; list into `js2-imenu-recorder'.  The lists are merged into a trie-like tree
 ;; for imenu after parsing is finished.
-;;
+
 ;; A `foo.bar.baz' assignment target may be expressed in many ways in
 ;; JavaScript, and the general problem is undecidable.  However, several forms
 ;; are readily recognizable at parse-time; the forms we attempt to recognize
 ;; include:
-;;
+
 ;;  function foo()  -- function declaration
 ;;  foo = function()  -- function expression assigned to variable
 ;;  foo.bar.baz = function()  -- function expr assigned to nested property-get
@@ -43,7 +45,7 @@
 ;;  foo = {get bar() {...}}  -- getter/setter in obj literal
 ;;  function foo() {function bar() {...}}  -- nested function
 ;;  foo['a'] = function()  -- fun expr assigned to deterministic element-get
-;;
+
 ;; This list boils down to a few forms that can be combined recursively.
 ;; Top-level named function declarations include both the left-hand (name)
 ;; and the right-hand (function value) expressions needed to produce an imenu
@@ -56,39 +58,39 @@
 ;;  - element gets like foo[10] or foo['bar'] where the index
 ;;    expression can be trivially converted to a property name.  They
 ;;    effectively then become property gets.
-;;
+
 ;; All the different definition types are canonicalized into the form
 ;; foo.bar.baz = position-of-function-keyword
-;;
+
 ;; We need to build a trie-like structure for imenu.  As an example,
 ;; consider the following JavaScript code:
-;;
+
 ;; a = function() {...}  // function at position 5
 ;; b = function() {...}  // function at position 25
 ;; foo = function() {...} // function at position 100
 ;; foo.bar = function() {...} // function at position 200
 ;; foo.bar.baz = function() {...} // function at position 300
 ;; foo.bar.zab = function() {...} // function at position 400
-;;
+
 ;; During parsing we accumulate an entry for each definition in
 ;; the variable `js2-imenu-recorder', like so:
-;;
+
 ;; '((a 5)
 ;;   (b 25)
 ;;   (foo 100)
 ;;   (foo bar 200)
 ;;   (foo bar baz 300)
 ;;   (foo bar zab 400))
-;;
+
 ;; After parsing these entries are merged into this alist-trie:
-;;
+
 ;; '((a . 1)
 ;;   (b . 2)
 ;;   (foo (<definition> . 3)
 ;;        (bar (<definition> . 6)
 ;;             (baz . 100)
 ;;             (zab . 200))))
-;;
+
 ;; Note the wacky need for a <definition> name.  The token can be anything
 ;; that isn't a valid JavaScript identifier, because you might make foo
 ;; a function and then start setting properties on it that are also functions.
@@ -111,7 +113,7 @@ returns nil.  Otherwise returns the string name/value of the node."
     (js2-number-node-value node))
    ((js2-this-node-p node)
     "this")))
-      
+
 (defsubst js2-node-qname-component (node)
   "Test function:  return the name of this node, if it contributes to a qname.
 Returns nil if the node doesn't contribute."
@@ -120,7 +122,7 @@ Returns nil if the node doesn't contribute."
        (if (and (js2-function-node-p node)
                 (js2-function-node-name node))
            (js2-name-node-name (js2-function-node-name node))))))
-           
+
 (defsubst js2-record-function-qname (fn-node qname)
   "Associate FN-NODE with its QNAME for later lookup.
 This is used in postprocessing the chain list.  When we find a chain
@@ -294,7 +296,7 @@ For instance, following a 'this' reference requires a parent function node."
   (if (null (cddr lst))  ; list length <= 2
       lst
     (list (car lst) (list (js2-treeify (cdr lst))))))
-          
+
 (defun js2-build-alist-trie (chains trie)
   "Merge declaration name chains into a trie-like alist structure for imenu.
 CHAINS is the qname chain list produced during parsing. TRIE is a
@@ -327,11 +329,11 @@ list of elements built up so far."
        (pos
         (setcdr (last kids)
                 (list
-                 (list (format "<definition-%d>" 
+                 (list (format "<definition-%d>"
                                (1+ (loop for kid in kids
                                          count (eq ?< (aref (car kid) 0)))))
                        pos))))
-                                   
+
        ;; case 4:  key is there with kids, need to merge in our chain
        (t
         (js2-build-alist-trie (list tail) kids))))
