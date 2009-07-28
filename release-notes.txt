@@ -1,3 +1,11 @@
+New in 20090728 release:
+  - consolidated all files into `js2-mode.el`
+  - checked js2-mode.el into GNU Emacs sources for inclusion in Emacs 23.2
+  - officially dropped support for emacs 21
+  - removed some compatibility checks (e.g. for xemacs, which is not supported)
+  - removed the restriction that js2-mode must be byte-compiled
+  - miscellaneous documentation and commenting updates
+
 New in 20090723b release:
   - made "import" and "export" reserved words (Issue 100)
   - fixed Issue 80 (parser confuses quotes in a regexp with a true string)
