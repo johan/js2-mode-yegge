@@ -136,7 +136,7 @@
             DocumentCSS DocumentStyle ElementCSSInlineStyle
             LinkStyle MediaList RGBColor Rect StyleSheet
             StyleSheetList ViewCSS
-            
+
             ;; W3C Event
             EventListener EventTarget Event DocumentEvent UIEvent
             MouseEvent MutationEvent KeyboardEvent
@@ -183,7 +183,7 @@ nil, zero or negative means none.
                  (const :tag "Basic" 1)
                  (const :tag "Include Properties" 2)
                  (const :tag "Include Functions" 3)))
-  
+
 (defvar js2-mode-dev-mode-p nil
   "Non-nil if running in development mode.  Normally nil.")
 
@@ -1377,7 +1377,7 @@ the correct number of ARGS must be provided."
 (js2-msg "msg.bad.for.in.destruct"
          "Left hand side of for..in loop must be an array of "
          "length 2 to accept key/value pair.")
-    
+
 (js2-msg "msg.cant.convert"
          "Can't convert to type '%s'.")
 
@@ -1405,11 +1405,11 @@ the correct number of ARGS must be provided."
           "Calling eval() with anything other than a primitive "
           "string value will simply return the value. "
           "Is this what you intended?")
-          
+
 (js2-msg "msg.eval.nonstring.strict"
          "Calling eval() with anything other than a primitive "
          "string value is not allowed in strict mode.")
-    
+
 (js2-msg "msg.bad.destruct.op"
          "Invalid destructuring assignment operator")
 
@@ -1477,7 +1477,7 @@ the correct number of ARGS must be provided."
 (js2-msg "msg.bad.regexp.compile"
          "Only one argument may be specified if the first "
          "argument to RegExp.prototype.compile is a RegExp object.")
-    
+
 ;; Parser
 (js2-msg "msg.got.syntax.errors"
          "Compilation produced %s syntax errors.")
@@ -1487,10 +1487,10 @@ the correct number of ARGS must be provided."
 
 (js2-msg "msg.const.redecl"
          "TypeError: redeclaration of const %s.")
-    
+
 (js2-msg "msg.let.redecl"
          "TypeError: redeclaration of variable %s.")
-    
+
 (js2-msg "msg.parm.redecl"
          "TypeError: redeclaration of formal parameter %s.")
 
@@ -1591,7 +1591,7 @@ the correct number of ARGS must be provided."
 
 (js2-msg "msg.no.semi.for.cond"
          "missing ; after for-loop condition")
-    
+
 (js2-msg "msg.in.after.for.name"
          "missing in after for")
 
@@ -1799,7 +1799,7 @@ the correct number of ARGS must be provided."
 (js2-msg "msg.no.ref.from.function"
          "Function %s can not be used as the left-hand "
          "side of assignment or as an operand of ++ or -- operator.")
-    
+
 (js2-msg "msg.bad.default.value"
          "Object's getDefaultValue() method returned an object.")
 
@@ -1822,14 +1822,14 @@ the correct number of ARGS must be provided."
 (js2-msg "msg.ctor.multiple.parms"
          "Can't define constructor or class %s since more than "
          "one constructor has multiple parameters.")
-    
+
 (js2-msg "msg.extend.scriptable"
          "%s must extend ScriptableObject in order to define property %s.")
 
 (js2-msg "msg.bad.getter.parms"
          "In order to define a property, getter %s must have zero "
          "parameters or a single ScriptableObject parameter.")
-    
+
 (js2-msg "msg.obj.getter.parms"
          "Expected static or delegated getter %s to take "
          "a ScriptableObject parameter.")
@@ -1934,7 +1934,7 @@ the correct number of ARGS must be provided."
 
 (js2-msg "msg.already.exec.gen"
          "Already executing generator")
-    
+
 (js2-msg "msg.StopIteration.invalid"
          "StopIteration may not be changed to an arbitrary object.")
 
@@ -3003,7 +3003,8 @@ The `params' field is a lisp list of nodes.  Each node is either a simple
       (js2-visit-ast (js2-function-node-name n) v))
   (dolist (p (js2-function-node-params n))
     (js2-visit-ast p v))
-  (js2-visit-ast (js2-function-node-body n) v))
+  (when (js2-function-node-body n)
+    (js2-visit-ast (js2-function-node-body n) v)))
 
 (defun js2-print-function-node (n i)
   (let ((pad (js2-make-pad i))
@@ -4647,6 +4648,13 @@ If NODE is the ast-root, returns nil."
                          (js2-node-parent-script-or-fn
                           (js2-node-parent-script-or-fn node)))))
 
+(defsubst js2-function-param-node-p (node)
+  "Return non-nil if NODE is a param node of a `js2-function-node'."
+  (let ((parent (js2-node-parent node)))
+    (and parent
+         (js2-function-node-p parent)
+         (memq node (js2-function-node-params parent)))))
+
 (defsubst js2-mode-shift-kids (kids start offset)
   (dolist (kid kids)
     (if (> (js2-node-pos kid) start)
@@ -5032,7 +5040,7 @@ Returns logical OR of END_* flags."
                       (js2-do-node-condition node))
                      ((js2-for-node-p node)
                       (js2-for-node-condition node)))))
-                      
+
     ;; check to see if the loop condition is always true
     (if (and condition
              (eq (js2-always-defined-boolean-p condition) 'ALWAYS_TRUE))
@@ -6110,7 +6118,7 @@ corresponding number.  Otherwise return -1."
                    (js2-add-to-string c))))))))
     (setq js2-token-end js2-ts-cursor)
     result))
-        
+
 (defun js2-read-quoted-string (quote)
   (let (c)
     (catch 'return
@@ -6531,7 +6539,7 @@ of a simple name.  Called before EXPR has a parent node."
              ))
           "\\)\\)\\s-*")
   "Matches empty jsdoc tags.")
-  
+
 (defconst js2-jsdoc-link-tag-regexp
   "{\\(@\\(?:link\\|code\\)\\)\\s-+\\([^#}\n]+\\)\\(#.+\\)?}"
   "Matches a jsdoc link or code tag.")
@@ -9608,8 +9616,8 @@ bound to KEY in the global keymap and indents the current line."
       (re-search-forward regexp bound)
       (setq parse (parse-partial-sexp saved-point (point)))
       (cond ((nth 3 parse)
-             (re-search-forward 
-              (concat "\\([^\\]\\|^\\)" (string (nth 3 parse))) 
+             (re-search-forward
+              (concat "\\([^\\]\\|^\\)" (string (nth 3 parse)))
               (save-excursion (end-of-line) (point)) t))
             ((nth 7 parse)
              (forward-line))
@@ -9626,7 +9634,7 @@ bound to KEY in the global keymap and indents the current line."
 `re-search-forward' but treats the buffer as if strings and
 comments have been removed."
   (let ((saved-point (point))
-        (search-expr 
+        (search-expr
          (cond ((null count)
                 '(js-re-search-forward-inner regexp bound 1))
                ((< count 0)
@@ -9649,9 +9657,9 @@ comments have been removed."
       (setq parse (parse-partial-sexp saved-point (point)))
       (cond ((nth 3 parse)
              (re-search-backward
-              (concat "\\([^\\]\\|^\\)" (string (nth 3 parse))) 
+              (concat "\\([^\\]\\|^\\)" (string (nth 3 parse)))
               (save-excursion (beginning-of-line) (point)) t))
-            ((nth 7 parse) 
+            ((nth 7 parse)
              (goto-char (nth 8 parse)))
             ((or (nth 4 parse)
                  (and (eq (char-before) ?/) (eq (char-after) ?*)))
@@ -9665,7 +9673,7 @@ comments have been removed."
 `re-search-backward' but treats the buffer as if strings and
 comments have been removed."
   (let ((saved-point (point))
-        (search-expr 
+        (search-expr
          (cond ((null count)
                 '(js-re-search-backward-inner regexp bound 1))
                ((< count 0)
@@ -9695,7 +9703,7 @@ a comma)."
     (back-to-indentation)
     (or (js-looking-at-operator-p)
         (and (js-re-search-backward "\n" nil t)
-	     (progn 
+	     (progn
 	       (skip-chars-backward " \t")
 	       (backward-char)
 	       (and (js-looking-at-operator-p)
@@ -9711,10 +9719,10 @@ indented to the same column as the current line."
   (save-excursion
     (save-match-data
       (when (looking-at "\\s-*\\<while\\>")
-	(if (save-excursion 
+	(if (save-excursion
 	      (skip-chars-backward "[ \t\n]*}")
 	      (looking-at "[ \t\n]*}"))
-	    (save-excursion 
+	    (save-excursion
 	      (backward-list) (backward-word 1) (looking-at "\\<do\\>"))
 	  (js-re-search-backward "\\<do\\>" (point-at-bol) t)
 	  (or (looking-at "\\<do\\>")
@@ -9722,7 +9730,7 @@ indented to the same column as the current line."
 		(while (and (js-re-search-backward "^[ \t]*\\<" nil t)
 			    (/= (current-indentation) saved-indent)))
 		(and (looking-at "[ \t]*\\<do\\>")
-		     (not (js-re-search-forward 
+		     (not (js-re-search-forward
 			   "\\<while\\>" (point-at-eol) t))
 		     (= (current-indentation) saved-indent)))))))))
 
@@ -9739,7 +9747,7 @@ returns nil."
                    (js-re-search-backward "[[:graph:]]" nil t)
                    (not (looking-at "[{([]"))
                    (progn
-                     (forward-char) 
+                     (forward-char)
                      ;; scan-sexps sometimes throws an error
                      (ignore-errors (backward-sexp))
                      (when (looking-at "(") (backward-word 1))
@@ -9785,7 +9793,7 @@ In particular, return the buffer position of the first `for' kwd."
     (save-excursion
       (goto-char for-kwd)
       (current-column))))
-      
+
 (defun js-proper-indentation (parse-status)
   "Return the proper indentation for the current line."
   (save-excursion
@@ -10084,7 +10092,7 @@ bracket, brace and statement nesting."
           (setq buffer-undo-list old-buffer-undo-list))
       ;; see commentary for `js2-mode-last-indented-line'
       (setq js2-mode-last-indented-line current-line))))
-      
+
 (defsubst js2-1-line-comment-continuation-p ()
   "Return t if we're in a 1-line comment continuation.
 If so, we don't ever want to use bounce-indent."
@@ -10100,7 +10108,7 @@ If so, we don't ever want to use bounce-indent."
                (js2-backward-sws)
                (forward-line 0))
              (looking-at "\\s-*//"))))))
-       
+
 (defun js2-indent-line ()
   "Indent the current line as JavaScript source text."
   (interactive)
@@ -10124,7 +10132,7 @@ If so, we don't ever want to use bounce-indent."
          (js2-lineup-comment parse-status)
        (setq indent-col (js-proper-indentation parse-status))
        ;; see comments below about js2-mode-last-indented-line
-       (when 
+       (when
            (cond
             ;; bounce-indenting is disabled during electric-key indent.
             ;; It doesn't work well on first line of buffer.
