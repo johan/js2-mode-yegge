@@ -8904,7 +8904,7 @@ Returns the list in reverse order.  Consumes the right-paren token."
               end (js2-node-end init)
               (js2-new-node-initializer pn) init)
         (js2-node-add-children pn init))
-        (setf (js2-node-len pn) (- beg pos)))  ; end outer if
+        (setf (js2-node-len pn) (- end beg)))  ; end outer if
     (js2-parse-member-expr-tail allow-call-syntax pn)))
 
 (defun js2-parse-member-expr-tail (allow-call-syntax pn)
