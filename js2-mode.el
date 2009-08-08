@@ -174,12 +174,12 @@ Set `js2-include-gears-externs' to t to include them.")
 
 (defcustom js2-highlight-level 2
   "Amount of syntax highlighting to perform.
-nil, zero or negative means none.
+0 or a negative value means do no highlighting.
 1 adds basic syntax highlighting.
 2 adds highlighting of some Ecma built-in properties.
 3 adds highlighting of many Ecma built-in functions."
   :group 'js2-mode
-  :type '(choice (const :tag "None" nil)
+  :type '(choice (const :tag "None" 0)
                  (const :tag "Basic" 1)
                  (const :tag "Include Properties" 2)
                  (const :tag "Include Functions" 3)))
@@ -201,7 +201,8 @@ Similar to `c-basic-offset'."
   :type 'integer)
 (make-variable-buffer-local 'js2-basic-offset)
 
-(defcustom js2-mirror-mode t
+;; TODO(stevey):  move this code into a separate minor mode.
+(defcustom js2-mirror-mode nil
   "Non-nil to insert closing brackets, parens, etc. automatically."
   :group 'js2-mode
   :type 'boolean)
@@ -2234,7 +2235,7 @@ If any given node in NODES is nil, doesn't record that link."
   parent-scope  ; a `js2-scope'
   top)          ; top-level `js2-scope' (script/function)
 
-(put 'cl-struct-js2-scope 'js2-visitor 'js2-visit-none)
+(put 'cl-struct-js2-scope 'js2-visitor 'js2-visit-block)
 (put 'cl-struct-js2-scope 'js2-printer 'js2-print-none)
 
 (defun js2-scope-set-parent-scope (scope parent)
@@ -3341,11 +3342,11 @@ The node type is set to js2-NULL, js2-THIS, etc.")
   (insert (js2-make-pad i)
           (let ((tt (js2-node-type n)))
             (cond
-             ((= tt 'js2-THIS) "this")
-             ((= tt 'js2-NULL) "null")
-             ((= tt 'js2-TRUE) "true")
-             ((= tt 'js2-FALSE) "false")
-             ((= tt 'js2-DEBUGGER) "debugger")
+             ((= tt js2-THIS) "this")
+             ((= tt js2-NULL) "null")
+             ((= tt js2-TRUE) "true")
+             ((= tt js2-FALSE) "false")
+             ((= tt js2-DEBUGGER) "debugger")
              (t (error "Invalid keyword literal type: %d" tt))))))
 
 (defsubst js2-this-node-p (node)
@@ -3434,7 +3435,7 @@ Returns 0 if NODE is nil or its identifier field is nil."
 
 (defun js2-print-number-node (n i)
   (insert (js2-make-pad i)
-          (number-to-string (js2-number-node-value n))))
+          (number-to-string (js2-number-node-num-value n))))
 
 (defstruct (js2-regexp-node
             (:include js2-node)
@@ -6960,7 +6961,6 @@ list of elements built up so far."
                                (1+ (loop for kid in kids
                                          count (eq ?< (aref (car kid) 0)))))
                        pos))))
-
        ;; case 4:  key is there with kids, need to merge in our chain
        (t
         (js2-build-alist-trie (list tail) kids))))
@@ -10310,7 +10310,7 @@ Hopefully the Emacs maintainers can help figure out a way to make it work."
     ;; with just the keywords already".  Argh.
     (setq font-lock-defaults (list font-lock-keywords 'keywords-only))
     (let (font-lock-verbose)
-      (font-lock-default-fontify-buffer))))
+      (font-lock-fontify-buffer))))
 
 (defun js2-reparse (&optional force)
   "Re-parse current buffer after user finishes some data entry.
@@ -10338,7 +10338,8 @@ buffer will only rebuild its `js2-mode-ast' if the buffer is dirty."
                      (setq interrupted-p
                            (catch 'interrupted
                              (setq js2-mode-ast (js2-parse))
-                             (js2-mode-fontify-regions)
+                             (when (plusp js2-highlight-level)
+                               (js2-mode-fontify-regions))
                              (js2-mode-remove-suppressed-warnings)
                              (js2-mode-show-warnings)
                              (js2-mode-show-errors)
